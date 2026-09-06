@@ -1,19 +1,19 @@
 from enum import Enum, IntFlag, auto
-from functools import reduce
-from gzip import decompress
+from gzip import compress, decompress
+from io import BytesIO
 from os import stat
 from struct import pack, unpack
-from typing import IO, Iterable, NamedTuple, Optional
-from compiler import Compiler
+from typing import BinaryIO, Iterable, NamedTuple, Optional
 
+from compiler import Compiler
 from strings import translate, untranslate
 
 
 def fixString(b: bytes):
-    return translate(b.strip(b'\xff\0'))
+    return translate(b.strip(b"\xff\0"))
 
 
-def padString(s: str, size: int, ch=b'\xff'):
+def padString(s: str, size: int, ch: bytes = b"\xff"):
     p = untranslate(s)
     while len(p) < size:
         p += ch
@@ -251,18 +251,34 @@ class ItemDropSteal:
         return self.rate | 0x80
 
 
-scriptNames = ['Initialize', 'Main', 'General Counter', 'Death Counter', 'Physical Counter', 'Magical Counter', 'Battle End',
-               'Pre-Action Setup', 'Custom 1', 'Custom 2', 'Custom 3', 'Custom 4', 'Custom 5', 'Custom 6', 'Custom 7', 'Custom 8']
+scriptNames = [
+    "Initialize",
+    "Main",
+    "General Counter",
+    "Death Counter",
+    "Physical Counter",
+    "Magical Counter",
+    "Battle End",
+    "Pre-Action Setup",
+    "Custom 1",
+    "Custom 2",
+    "Custom 3",
+    "Custom 4",
+    "Custom 5",
+    "Custom 6",
+    "Custom 7",
+    "Custom 8",
+]
 
 
 class AIData:
-    offsets: Iterable[int]
+    offsets: list[int]
     src: bytes
 
-    def __init__(self, f: Optional[IO]) -> None:
+    def __init__(self, f: Optional[BinaryIO]) -> None:
         if f:
-            start = f.tell()
-            self.offsets = unpack('<hhhhhhhhhhhhhhhh', f.read(32))
+            _start = f.tell()
+            self.offsets = list(unpack("<hhhhhhhhhhhhhhhh", f.read(32)))
             highest = -1
             for o in self.offsets:
                 if o > highest:
@@ -277,51 +293,43 @@ class AIData:
                         break
                     self.src += ch
                     # TODO improve me
-                    if ch == b'\x73':
+                    if ch == b"\x73":
                         break
 
     def raw(self) -> bytes:
-        code = pack('<hhhhhhhhhhhhhhhh', *self.offsets) + self.src
+        code = pack("<hhhhhhhhhhhhhhhh", *self.offsets) + self.src
         if len(code) % 2:
-            code += b'\xff'
+            code += b"\xff"
         return code
 
     @property
     def present(self) -> str:
-        scripts = []
+        scripts: list[str] = []
         for i in range(16):
             if self.offsets[i] != -1:
                 scripts.append(scriptNames[i])
-        return ', '.join(scripts)
+        return ", ".join(scripts)
 
 
 aiSlotNames = {
-    'initialize': 0,
-    'setup': 0,
-
-    'main': 1,
-
-    'countergeneral': 2,
-
-    'counterdeath': 3,
-
-    'counterphysical': 4,
-
-    'countermagic': 5,
-    'countermagical': 5,
-
-    'end': 6,
-
-    'preaction': 7,
-
-    'custom1': 8,
-    'custom2': 9,
-    'custom3': 10,
-    'custom4': 11,
-    'custom5': 12,
-    'custom6': 13,
-    'custom7': 14,
-    'custom8': 15,
+    "initialize": 0,
+    "setup": 0,
+    "main": 1,
+    "countergeneral": 2,
+    "counterdeath": 3,
+    "counterphysical": 4,
+    "countermagic": 5,
+    "countermagical": 5,
+    "end": 6,
+    "preaction": 7,
+    "custom1": 8,
+    "custom2": 9,
+    "custom3": 10,
+    "custom4": 11,
+    "custom5": 12,
+    "custom6": 13,
+    "custom7": 14,
+    "custom8": 15,
 }
 
 
@@ -369,39 +377,71 @@ class Enemy:
     gil: int
     immunity: StatusEffect
     unknownB4: int
-    ai: AIData
+    ai: Optional[AIData] = None
 
     @property
     def elementalRates(self) -> str:
-        rates = []
-        for (e, r) in self.elements.items():
-            rates.append('%s (%s)' % (e.name, r.name))
-        return ', '.join(rates)
+        rates: list[str] = []
+        for e, r in self.elements.items():
+            rates.append("%s (%s)" % (e.name, r.name))
+        return ", ".join(rates)
 
     def __repr__(self) -> str:
-        return '\n'.join(["%s (#%04x), Level %d" % (self.name, self.id, self.level),
-                          'Spd: %d  Luck: %d  Evade: %d  Str: %d  Def: %d  Mag: %d  MDf: %d' % (
-                              self.speed, self.luck, self.evade, self.strength, self.defense, self.magic, self.magicDefense),
-                          'HP: %d  MP: %d  EXP: %d  Gil: %d  AP: %d' % (self.hp, self.mp,
-                                                                        self.exp, self.gil, self.ap),
-                          "Items: %s" % self.items,
-                          "Elements: %s" % self.elementalRates,
-                          "Immunities: %s" % self.immunity,
-                          'AI Scripts: %s' % self.ai.present])
+        return "\n".join(
+            [
+                "%s (#%04x), Level %d" % (self.name, self.id, self.level),
+                "Spd: %d  Luck: %d  Evade: %d  Str: %d  Def: %d  Mag: %d  MDf: %d"
+                % (
+                    self.speed,
+                    self.luck,
+                    self.evade,
+                    self.strength,
+                    self.defense,
+                    self.magic,
+                    self.magicDefense,
+                ),
+                "HP: %d  MP: %d  EXP: %d  Gil: %d  AP: %d"
+                % (self.hp, self.mp, self.exp, self.gil, self.ap),
+                "Items: %s" % self.items,
+                "Elements: %s" % self.elementalRates,
+                "Immunities: %s" % self.immunity.name,
+                "AI Scripts: %s" % self.ai.present if self.ai else "No AI Scripts",
+            ]
+        )
 
-    def read(self, f: IO):
-        name, self.level, self.speed, self.luck, self.evade, self.strength, self.defense, self.magic, self.magicDefense = unpack(
-            '<32sBBBBBBBB', f.read(40))
-        elems = unpack('<bbbbbbbb', f.read(8))
-        erates = unpack('<bbbbbbbb', f.read(8))
-        self.animations = unpack('<bbbbbbbbbbbbbbbb', f.read(16))
-        self.attacks = unpack('<hhhhhhhhhhhhhhhh', f.read(32))
-        self.movements = unpack('<hhhhhhhhhhhhhhhh', f.read(32))
-        irates = unpack('<BBBB', f.read(4))
-        items = unpack('<hhhh', f.read(8))
-        self.autoAttacks = unpack('<hhh', f.read(6))
-        self.unknown9A, self.mp, self.ap, self.morph, mul, self.pad, self.hp, self.exp, self.gil, immune, self.unknownB4 = unpack(
-            '<HHHhBBIIIII', f.read(30))
+    def read(self, f: BinaryIO):
+        (
+            name,
+            self.level,
+            self.speed,
+            self.luck,
+            self.evade,
+            self.strength,
+            self.defense,
+            self.magic,
+            self.magicDefense,
+        ) = unpack("<32sBBBBBBBB", f.read(40))
+        elems = unpack("<bbbbbbbb", f.read(8))
+        erates = unpack("<bbbbbbbb", f.read(8))
+        self.animations = unpack("<bbbbbbbbbbbbbbbb", f.read(16))
+        self.attacks = unpack("<hhhhhhhhhhhhhhhh", f.read(32))
+        self.movements = unpack("<hhhhhhhhhhhhhhhh", f.read(32))
+        irates = unpack("<BBBB", f.read(4))
+        items = unpack("<hhhh", f.read(8))
+        self.autoAttacks = unpack("<hhh", f.read(6))
+        (
+            self.unknown9A,
+            self.mp,
+            self.ap,
+            self.morph,
+            mul,
+            self.pad,
+            self.hp,
+            self.exp,
+            self.gil,
+            immune,
+            self.unknownB4,
+        ) = unpack("<HHHhBBIIIII", f.read(30))
         self.name = fixString(name)
         self.elements = {}
         for i in range(8):
@@ -421,7 +461,7 @@ class Enemy:
                 drop = False
             self.items[id] = ItemDropSteal(drop, rate)
         self.backMultiplier = mul / 8
-        if immune == 0xffffffff:
+        if immune == 0xFFFFFFFF:
             immune = 0
         else:
             immune = ~immune
@@ -431,7 +471,7 @@ class Enemy:
         elems = [-1] * 8
         erates = [-1] * 8
         i = 0
-        for (e, r) in self.elements.items():
+        for e, r in self.elements.items():
             elems[i] = e.value
             erates[i] = r.value
             i += 1
@@ -441,36 +481,75 @@ class Enemy:
         irates = [255] * 4
         items = [-1] * 4
         i = 0
-        for (id, ds) in self.items.items():
+        for id, ds in self.items.items():
             items[i] = id
             irates[i] = ds.raw()
             i += 1
         return items, irates
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         name = padString(self.name, 32)
         elems, erates = self.gatherElemRates()
         items, irates = self.gatherItemRates()
         mul = int(self.backMultiplier * 8)
-        immune = ~self.immunity.value
-        if immune == -1:
-            immune = 0xffffffff
-        f.write(pack('<32sBBBBBBBB', name, self.level, self.speed, self.luck,
-                self.evade, self.strength, self.defense, self.magic, self.magicDefense))
-        f.write(pack('<bbbbbbbb', *elems))
-        f.write(pack('<bbbbbbbb', *erates))
-        f.write(pack('<bbbbbbbbbbbbbbbb', *self.animations))
-        f.write(pack('<hhhhhhhhhhhhhhhh', *self.attacks))
-        f.write(pack('<hhhhhhhhhhhhhhhh', *self.movements))
-        f.write(pack('<BBBB', *irates))
-        f.write(pack('<hhhh', *items))
-        f.write(pack('<hhh', *self.autoAttacks))
-        f.write(pack('<HHHhBBIIIII', self.unknown9A, self.mp, self.ap, self.morph,
-                mul, self.pad, self.hp, self.exp, self.gil, immune, self.unknownB4))
+        immune = self.immunity.conjugate()
+        f.write(
+            pack(
+                "<32sBBBBBBBB",
+                name,
+                self.level,
+                self.speed,
+                self.luck,
+                self.evade,
+                self.strength,
+                self.defense,
+                self.magic,
+                self.magicDefense,
+            )
+        )
+        f.write(pack("<bbbbbbbb", *elems))
+        f.write(pack("<bbbbbbbb", *erates))
+        f.write(pack("<bbbbbbbbbbbbbbbb", *self.animations))
+        f.write(pack("<hhhhhhhhhhhhhhhh", *self.attacks))
+        f.write(pack("<hhhhhhhhhhhhhhhh", *self.movements))
+        f.write(pack("<BBBB", *irates))
+        f.write(pack("<hhhh", *items))
+        f.write(pack("<hhh", *self.autoAttacks))
+        f.write(
+            pack(
+                "<HHHhBBIIIII",
+                self.unknown9A,
+                self.mp,
+                self.ap,
+                self.morph,
+                mul,
+                self.pad,
+                self.hp,
+                self.exp,
+                self.gil,
+                immune,
+                self.unknownB4,
+            )
+        )
 
 
 class SetupFlags(IntFlag):
-    pass
+    SetupA = 0x0001
+    SetupB = 0x0002
+    SetupC = 0x0004
+    SetupD = 0x0008
+    SetupE = 0x0010
+    SetupF = 0x0020
+    SetupG = 0x0040
+    SetupH = 0x0080
+    SetupI = 0x0100
+    SetupJ = 0x0200
+    SetupK = 0x0400
+    SetupL = 0x0800
+    SetupM = 0x1000
+    SetupN = 0x2000
+    SetupO = 0x4000
+    SetupP = 0x8000
 
 
 class SetupLayout(Enum):
@@ -495,23 +574,41 @@ class Setup:
     layout: SetupLayout
     camera: int
 
-    def __init__(self, f: IO):
-        loc, cont, self.escape, self.pad, arena1, arena2, arena3, arena4, flags, layout, self.camera = unpack(
-            '<HhHHHHHHHBB', f.read(20))
+    def __init__(self, f: BinaryIO):
+        (
+            loc,
+            cont,
+            self.escape,
+            self.pad,
+            arena1,
+            arena2,
+            arena3,
+            arena4,
+            flags,
+            layout,
+            self.camera,
+        ) = unpack("<HhHHHHHHHBB", f.read(20))
         self.location = BattleLocation(loc)
         if cont != -1:
             self.continuation = cont
         else:
             self.continuation = None
-        self.nextArenaBattle = [x for x in [
-            arena1, arena2, arena3, arena4] if x != 999]
-        self.flags = SetupFlags(flags)
+        self.nextArenaBattle = [x for x in [arena1, arena2, arena3, arena4] if x != 999]
+        self.flags = SetupFlags(~flags)
         self.layout = SetupLayout(layout)
 
     def __repr__(self) -> str:
-        return "Setup[%s, %s, %s, %s, %s, %s, %s]" % (self.location, self.continuation, self.escape, self.nextArenaBattle, self.flags, self.layout, self.camera)
+        return "Setup[%s, %s, %s, %s, %s, %s, %s]" % (
+            self.location,
+            self.continuation,
+            self.escape,
+            self.nextArenaBattle,
+            self.flags.name,
+            self.layout,
+            self.camera,
+        )
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         loc = self.location.value
         if self.continuation:
             cont = self.continuation
@@ -522,32 +619,43 @@ class Setup:
             arenas.append(999)
         flags = self.flags.value
         layout = self.layout.value
-        f.write(pack('<HhHHHHHHHBB', loc, cont, self.escape,
-                self.pad, *arenas, flags, layout, self.camera))
+        f.write(
+            pack(
+                "<HhHHHHHHHBB",
+                loc,
+                cont,
+                self.escape,
+                self.pad,
+                *arenas,
+                flags,
+                layout,
+                self.camera,
+            )
+        )
 
 
 class CameraPosition:
-    def __init__(self, f: IO):
-        self.pos = unpack('<HHH', f.read(6))
-        self.ang = unpack('<HHH', f.read(6))
+    def __init__(self, f: BinaryIO):
+        self.pos = unpack("<HHH", f.read(6))
+        self.ang = unpack("<HHH", f.read(6))
 
     def __repr__(self) -> str:
         pos = "(%d,%d,%d)" % self.pos
         ang = "(%d,%d,%d)" % self.ang
         return "%s@%s" % (pos, ang)
 
-    def write(self, f: IO):
-        f.write(pack('<HHHHHH', *self.pos, *self.ang))
+    def write(self, f: BinaryIO):
+        f.write(pack("<HHHHHH", *self.pos, *self.ang))
 
 
 class CameraPlacement:
-    def __init__(self, f: IO):
+    def __init__(self, f: BinaryIO):
         self.primary = CameraPosition(f)
         self.secondary = CameraPosition(f)
         self.tertiary = CameraPosition(f)
         self.unknown = f.read(12)
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         self.primary.write(f)
         self.secondary.write(f)
         self.tertiary.write(f)
@@ -564,34 +672,45 @@ class FormationEnemyFlags(IntFlag):
 
 
 class FormationEnemy:
-    def __init__(self, f: IO):
+    def __init__(self, f: BinaryIO):
         self.id, self.x, self.y, self.z, self.row, self.cover, flags = unpack(
-            '<hhhhHHI', f.read(16))
+            "<hhhhHHI", f.read(16)
+        )
         self.flags = FormationEnemyFlags(flags)
 
     def __repr__(self) -> str:
-        return "Enemy[#%04x, (%d,%d,%d), %d, %d, %s]" % (self.id, self.x, self.y, self.z, self.row, self.cover, self.flags)
+        return "Enemy[#%04x, (%d,%d,%d), %d, %d, %s]" % (
+            self.id,
+            self.x,
+            self.y,
+            self.z,
+            self.row,
+            self.cover,
+            self.flags,
+        )
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         flags = self.flags.value
-        f.write(pack('<hhhhHHI', self.id, self.x, self.y,
-                self.z, self.row, self.cover, flags))
+        f.write(
+            pack(
+                "<hhhhHHI", self.id, self.x, self.y, self.z, self.row, self.cover, flags
+            )
+        )
 
 
 class Formation:
-    def __init__(self, f: IO):
-        self.enemies = [e for e in [FormationEnemy(
-            f) for i in range(6)] if e.id != -1]
+    def __init__(self, f: BinaryIO):
+        self.enemies = [e for e in [FormationEnemy(f) for _ in range(6)] if e.id != -1]
 
     def __repr__(self) -> str:
-        return 'Formation:' + ''.join(['\n\t'+str(e) for e in self.enemies])
+        return "Formation:" + "".join(["\n\t" + str(e) for e in self.enemies])
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         for i in range(6):
             if i < len(self.enemies):
                 self.enemies[i].write(f)
             else:
-                f.write(b'\xff' * 16)
+                f.write(b"\xff" * 16)
 
 
 class TargetFlags(IntFlag):
@@ -607,26 +726,26 @@ class TargetFlags(IntFlag):
 
 
 standardFormulae = {
-    0: 'No Damage',
-    1: '(Power / 16) * (Stat + [(Level + Stat) / 32]^2) {SAD/SPLIT/BAR/VAR}',
-    2: '(Power / 16) * ((Lvl + Stat) * 6) {SAD/SPLIT/BAR/VAR}',
-    3: 'HP * (Power / 32)',
-    4: 'MHP * (Power / 32)',
-    5: '(Power * 22) + ((Level + Stat) * 6) {SPLIT/BAR/VAR}',
-    6: 'Power * 20',
-    7: 'Power / 32 {VAR}',
-    8: 'Recovery',
-    9: 'Throw',
-    10: 'Coin',
+    0: "No Damage",
+    1: "(Power / 16) * (Stat + [(Level + Stat) / 32]^2) {SAD/SPLIT/BAR/VAR}",
+    2: "(Power / 16) * ((Lvl + Stat) * 6) {SAD/SPLIT/BAR/VAR}",
+    3: "HP * (Power / 32)",
+    4: "MHP * (Power / 32)",
+    5: "(Power * 22) + ((Level + Stat) * 6) {SPLIT/BAR/VAR}",
+    6: "Power * 20",
+    7: "Power / 32 {VAR}",
+    8: "Recovery",
+    9: "Throw",
+    10: "Coin",
 }
 specialFormulae = {
     0: "100% User's HP",
-    8: 'Dice Roll x 100',
-    9: 'Number of Escapes * 256',
+    8: "Dice Roll x 100",
+    9: "Number of Escapes * 256",
     10: "Target's HP - 1",
-    11: 'Number of hours on game clock * 100 + number of minutes in game clock',
-    12:	"10 x Target's Kills",
-    13:	"1111 x Target's Materia",
+    11: "Number of hours on game clock * 100 + number of minutes in game clock",
+    12: "10 x Target's Kills",
+    13: "1111 x Target's Materia",
 }
 alteredFormulae = {
     0: "Damage * (1 + [User's Status Effects])",
@@ -644,82 +763,92 @@ alteredFormulae = {
 def lookup(d: dict[int, str], i: int) -> str:
     if i in d:
         return d[i]
-    return 'Unknown: %x' % i
+    return "Unknown: %x" % i
 
 
 def describeDamageCalculation(calc: int, acc: int) -> str:
     upper = calc >> 4
     lower = calc % 4
     if upper == 0 or upper == 3:
-        return r'Physical, always hits >> ' + lookup(standardFormulae, lower)
+        return r"Physical, always hits >> " + lookup(standardFormulae, lower)
     elif upper == 1:
-        return 'Physical, %d%% hit rate, Allow Critical >> ' % acc + lookup(standardFormulae, lower)
+        return "Physical, %d%% hit rate, Allow Critical >> " % acc + lookup(
+            standardFormulae, lower
+        )
     elif upper == 2:
-        return 'Magical, %d%% hit rate >> ' % acc + lookup(standardFormulae, lower)
+        return "Magical, %d%% hit rate >> " % acc + lookup(standardFormulae, lower)
     elif upper == 4 or upper == 5:
-        return r'Magical, always hits >> ' + lookup(standardFormulae, lower)
+        return r"Magical, always hits >> " + lookup(standardFormulae, lower)
     elif upper == 6:
-        return 'Physical, %d%% hit rate, Allow Critical >> ' % acc + lookup(specialFormulae, lower)
+        return "Physical, %d%% hit rate, Allow Critical >> " % acc + lookup(
+            specialFormulae, lower
+        )
     elif upper == 7:
-        return 'Magical, %d%% hit rate >> ' % acc + lookup(specialFormulae, lower)
+        return "Magical, %d%% hit rate >> " % acc + lookup(specialFormulae, lower)
     elif upper == 8:
-        return 'Magical, only hits level mod %d >> ' % acc + lookup(standardFormulae, lower)
+        return "Magical, only hits level mod %d >> " % acc + lookup(
+            standardFormulae, lower
+        )
     elif upper == 9:
         return 'Magical, "Manipulate" accuracy >> ' + lookup(standardFormulae, lower)
     elif upper == 10:
-        return describeDamageCalculation(0x11, acc) + ' >> ' + lookup(alteredFormulae, lower)
+        return (
+            describeDamageCalculation(0x11, acc)
+            + " >> "
+            + lookup(alteredFormulae, lower)
+        )
     elif upper == 11:
-        return 'Physical, %d%% hit rate >> ' % acc + lookup(standardFormulae, lower)
-    return 'Unknown: %02x' % calc
+        return "Physical, %d%% hit rate >> " % acc + lookup(standardFormulae, lower)
+    return "Unknown: %02x" % calc
 
 
 specialEffects = {
-    0: '%d hit(s)',
-    1: 'if enemies are immune, do Gunge Lance',
-    2: 'summon Fat Chocobo, %d/255 chance',
-    3: 'start main script %04x',
-    4: 'cause back attack damage to target in row %d',
-    5: 'end battle, no reward',
-    6: 'steal (Level * 20) Gil from target',
-    7: 'steal item from target',
-    8: 'randomly select animation',
-    9: 'if equal level, 8x damage',
-    10: 'Master Fist',
-    11: 'Powersoul',
-    12: 'Princess Guard',
-    13: 'Conformer',
-    14: 'resurrect dead allies',
-    15: 'Slots',
-    16: 'Slots: Transform',
-    17: 'remove from battle (dead)',
-    18: 'remove from battle (escaped)',
-    19: 'Tifa Slot Critical',
-    20: 'Fury Brand',
-    21: 'alter damage/defense by (100-%d) percent',
-    22: 'alter my evasion by (%d-100) percent',
-    23: 'alter my attack by (%d-100) percent',
-    24: 'perform attack/item %04x',
-    25: 'change rows',
-    26: 'perform attack %04x on other row members',
-    27: 'remove me from battle (escaped)',
-    28: 'alter defense by (%d-100) percent',
-    29: 'return from escaped',
-    30: 'scale damage by current HP percentage',
-    31: 'scale damage by current MP percentage',
-    32: 'scale damage by AP on weapon',
-    33: 'scale damage by kills',
-    34: 'scale damage by current Limit percentage',
-    35: 'receive no gil or items from target on death',
+    0: "%d hit(s)",
+    1: "if enemies are immune, do Gunge Lance",
+    2: "summon Fat Chocobo, %d/255 chance",
+    3: "start main script %04x",
+    4: "cause back attack damage to target in row %d",
+    5: "end battle, no reward",
+    6: "steal (Level * 20) Gil from target",
+    7: "steal item from target",
+    8: "randomly select animation",
+    9: "if equal level, 8x damage",
+    10: "Master Fist",
+    11: "Powersoul",
+    12: "Princess Guard",
+    13: "Conformer",
+    14: "resurrect dead allies",
+    15: "Slots",
+    16: "Slots: Transform",
+    17: "remove from battle (dead)",
+    18: "remove from battle (escaped)",
+    19: "Tifa Slot Critical",
+    20: "Fury Brand",
+    21: "alter damage/defense by (100-%d) percent",
+    22: "alter my evasion by (%d-100) percent",
+    23: "alter my attack by (%d-100) percent",
+    24: "perform attack/item %04x",
+    25: "change rows",
+    26: "perform attack %04x on other row members",
+    27: "remove me from battle (escaped)",
+    28: "alter defense by (%d-100) percent",
+    29: "return from escaped",
+    30: "scale damage by current HP percentage",
+    31: "scale damage by current MP percentage",
+    32: "scale damage by AP on weapon",
+    33: "scale damage by kills",
+    34: "scale damage by current Limit percentage",
+    35: "receive no gil or items from target on death",
 }
 
 
 def describeSpecialEffect(effect: int, mod: int) -> str:
     if effect in specialEffects:
         s = specialEffects[effect]
-        if '%' in s:
+        if "%" in s:
             return s % mod
         return s
-    return 'Unknown: %x' % effect
+    return "Unknown: %x" % effect
 
 
 class AttackCondition(Enum):
@@ -753,50 +882,93 @@ class Attack:
     id: int
     name: str
 
-    def __init__(self, f: IO) -> None:
-        self.accuracy, self.impactEffect, self.hurtAction, self.unknown03, self.cost, self.impactSound, self.cameraSingle, self.cameraMultiple, target, self.effectId, self.calculation, self.power, condition, self.statusChange, self.special, self.specialMod, self.status, element, flags = unpack(
-            '<BBBBHHHHBBBBBBbbIHH', f.read(28))
+    def __init__(self, f: BinaryIO) -> None:
+        (
+            self.accuracy,
+            self.impactEffect,
+            self.hurtAction,
+            self.unknown03,
+            self.cost,
+            self.impactSound,
+            self.cameraSingle,
+            self.cameraMultiple,
+            target,
+            self.effectId,
+            self.calculation,
+            self.power,
+            condition,
+            self.statusChange,
+            self.special,
+            self.specialMod,
+            self.status,
+            element,
+            flags,
+        ) = unpack("<BBBBHHHHBBBBBBbbIHH", f.read(28))
         self.target = TargetFlags(target)
         self.condition = AttackCondition(condition)
         self.element = ElementFlags(element)
-        if flags == 0xffff:
+        if flags == 0xFFFF:
             flags = 0
         else:
             flags = ~flags
         self.flags = AttackFlags(flags)
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         target = self.target.value
         condition = self.condition.value
         element = self.element.value
-        flags = ~self.flags.value
-        if flags == -1:
-            flags = 0xFFFF
-        f.write(pack('<BBBBHHHHBBBBBBbbIHH', self.accuracy, self.impactEffect, self.hurtAction, self.unknown03, self.cost, self.impactSound, self.cameraSingle,
-                self.cameraMultiple, target, self.effectId, self.calculation, self.power, condition, self.statusChange, self.special, self.specialMod, self.status, element, flags))
+        flags = self.flags.conjugate()
+        f.write(
+            pack(
+                "<BBBBHHHHBBBBBBbbIHH",
+                self.accuracy,
+                self.impactEffect,
+                self.hurtAction,
+                self.unknown03,
+                self.cost,
+                self.impactSound,
+                self.cameraSingle,
+                self.cameraMultiple,
+                target,
+                self.effectId,
+                self.calculation,
+                self.power,
+                condition,
+                self.statusChange,
+                self.special,
+                self.specialMod,
+                self.status,
+                element,
+                flags,
+            )
+        )
 
     @property
     def statusEffects(self) -> str:
-        if self.status == 0xffffffff:
-            return 'No Status Effects'
-        chance = self.statusChange & 0x3f
+        if self.status == 0xFFFFFFFF:
+            return "No Status Effects"
+        chance = self.statusChange & 0x3F
         cure = self.statusChange & 0x40
         toggle = self.statusChange & 0x80
-        effect = 'Inflict'
+        effect = "Inflict"
         if toggle:
-            effect = 'Toggle'
+            effect = "Toggle"
         elif cure:
-            effect = 'Cure'
-        return '%s (%d/63): %s' % (effect, chance, StatusEffect(self.status))
+            effect = "Cure"
+        return "%s (%d/63): %s" % (effect, chance, StatusEffect(self.status))
 
     def __repr__(self) -> str:
-        lines = ['%s (#%04x), %s' % (self.name, self.id, self.target), 'MP: %d  Power: %d  %s  %s  %s' % (
-            self.cost, self.power, self.condition, self.element, self.flags), describeDamageCalculation(self.calculation, self.accuracy)]
+        lines = [
+            "%s (#%04x), %s" % (self.name, self.id, self.target),
+            "MP: %d  Power: %d  %s  %s  %s"
+            % (self.cost, self.power, self.condition, self.element, self.flags),
+            describeDamageCalculation(self.calculation, self.accuracy),
+        ]
         if self.special != -1:
             lines.append(describeSpecialEffect(self.special, self.specialMod))
-        if self.status != 0xffffffff:
+        if self.status != 0xFFFFFFFF:
             lines.append(self.statusEffects)
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
 
 class SceneData:
@@ -808,7 +980,8 @@ class SceneData:
     aiOffsets: Iterable[int]
     ai: bytes
 
-    def __init__(self, f: IO):
+    def __init__(self, f: BinaryIO, id: int):
+        self.id = id
         self.enemies = [Enemy(), Enemy(), Enemy()]
         self.readIDs(f)
         self.readSetups(f)
@@ -819,39 +992,49 @@ class SceneData:
         self.readFormationAI(f)
         self.readEnemyAI(f)
 
-    def readIDs(self, f: IO):
-        ida, idb, idc, self.idPadding = unpack('<hhhh', f.read(8))
+    def __repr__(self) -> str:
+        return f"Scene #{self.id}"
+
+    @staticmethod
+    def from_file(f: BinaryIO, ref: "SceneFile", id: int):
+        f.seek(ref.blockStart + ref.start)
+        compressed = f.read(ref.size).strip(b"\xff")
+        decompressed = decompress(compressed)
+        return SceneData(BytesIO(decompressed), id)
+
+    def readIDs(self, f: BinaryIO):
+        ida, idb, idc, self.idPadding = unpack("<hhhh", f.read(8))
         self.enemies[0].id = ida
         self.enemies[1].id = idb
         self.enemies[2].id = idc
 
-    def readSetups(self, f: IO):
-        self.setups = [Setup(f) for i in range(4)]
+    def readSetups(self, f: BinaryIO):
+        self.setups = [Setup(f) for _ in range(4)]
 
-    def readCameras(self, f: IO):
-        self.cameras = [CameraPlacement(f) for i in range(4)]
+    def readCameras(self, f: BinaryIO):
+        self.cameras = [CameraPlacement(f) for _ in range(4)]
 
-    def readFormations(self, f: IO):
-        self.formations = [Formation(f) for i in range(4)]
+    def readFormations(self, f: BinaryIO):
+        self.formations = [Formation(f) for _ in range(4)]
 
-    def readEnemies(self, f: IO):
+    def readEnemies(self, f: BinaryIO):
         for enemy in self.enemies:
             enemy.read(f)
 
-    def readAttacks(self, f: IO):
-        self.attacks = [Attack(f) for i in range(32)]
-        ids = unpack('<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh', f.read(64))
+    def readAttacks(self, f: BinaryIO):
+        self.attacks = [Attack(f) for _ in range(32)]
+        ids = unpack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", f.read(64))
         for i in range(32):
             self.attacks[i].id = ids[i]
             self.attacks[i].name = fixString(f.read(32))
 
-    def readFormationAI(self, f: IO):
-        self.aiOffsets = unpack('<hhhh', f.read(8))
+    def readFormationAI(self, f: BinaryIO):
+        self.aiOffsets = unpack("<hhhh", f.read(8))
         self.ai = f.read(504)
 
-    def readEnemyAI(self, f: IO):
-        start = f.tell()    # should always be 0xE80
-        offsets = unpack('<hhh', f.read(6))
+    def readEnemyAI(self, f: BinaryIO):
+        start = f.tell()  # should always be 0xE80
+        offsets = unpack("<hhh", f.read(6))
         for i in range(3):
             o = offsets[i]
             if o == -1:
@@ -860,10 +1043,10 @@ class SceneData:
             self.enemies[i].ai = AIData(f)
 
     def save(self, fn: str):
-        f = open(fn, 'wb')
+        f = open(fn, "wb")
         self.write(f)
 
-    def write(self, f: IO):
+    def write(self, f: BinaryIO):
         s = f.tell()
         self.writeIDs(f)
         self.writeSetups(f)
@@ -874,51 +1057,58 @@ class SceneData:
         self.writeFormationAI(f)
         self.writeEnemyAI(f)
         padding = 0x1E80 - f.tell() + s
-        f.write(b'\xff' * padding)
+        f.write(b"\xff" * padding)
 
-    def writeIDs(self, f: IO):
-        f.write(pack(
-            '<hhhh', self.enemies[0].id, self.enemies[1].id, self.enemies[2].id, self.idPadding))
+    def writeIDs(self, f: BinaryIO):
+        f.write(
+            pack(
+                "<hhhh",
+                self.enemies[0].id,
+                self.enemies[1].id,
+                self.enemies[2].id,
+                self.idPadding,
+            )
+        )
 
-    def writeSetups(self, f: IO):
+    def writeSetups(self, f: BinaryIO):
         for o in self.setups:
             o.write(f)
 
-    def writeCameras(self, f: IO):
+    def writeCameras(self, f: BinaryIO):
         for o in self.cameras:
             o.write(f)
 
-    def writeFormations(self, f: IO):
+    def writeFormations(self, f: BinaryIO):
         for o in self.formations:
             o.write(f)
 
-    def writeEnemies(self, f: IO):
+    def writeEnemies(self, f: BinaryIO):
         for o in self.enemies:
             o.write(f)
 
-    def writeAttacks(self, f: IO):
-        ids = []
+    def writeAttacks(self, f: BinaryIO):
+        ids: list[int] = []
         names = bytes()
         for o in self.attacks:
             o.write(f)
             ids.append(o.id)
             names += padString(o.name, 32)
-        f.write(pack('<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh', *ids))
+        f.write(pack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", *ids))
         f.write(names)
 
-    def writeFormationAI(self, f: IO):
-        f.write(pack('<hhhh', *self.aiOffsets))
+    def writeFormationAI(self, f: BinaryIO):
+        f.write(pack("<hhhh", *self.aiOffsets))
         f.write(self.ai)
 
-    def writeEnemyAI(self, f: IO):
+    def writeEnemyAI(self, f: BinaryIO):
         offsets = [-1, -1, -1]
         ai = bytes()
         for i in range(3):
             e = self.enemies[i]
-            if hasattr(e, 'ai'):
+            if e.ai:
                 offsets[i] = len(ai) + 6
                 ai += e.ai.raw()
-        f.write(pack('<hhh', *offsets))
+        f.write(pack("<hhh", *offsets))
         f.write(ai)
 
 
@@ -935,30 +1125,50 @@ class SceneFile(NamedTuple):
 class SceneBlock:
     files: list[SceneFile]
 
-    def __init__(self, f: IO):
+    def __init__(self, f: BinaryIO):
         self.start = f.tell()
-        offsets = unpack('<iiiiiiiiiiiiiiii', f.read(64))
+        offsets = unpack("<iiiiiiiiiiiiiiii", f.read(64))
         last = False
         self.files = []
         for i in range(16):
             o = offsets[i]
             if i < 15:
-                e = offsets[i+1]
+                e = offsets[i + 1]
                 if e == -1:
                     e = 0x800
                     last = True
             else:
                 e = 0x800
-            self.files.append(SceneFile(self.start, o*4, e*4))
+            self.files.append(SceneFile(self.start, o * 4, e * 4))
             if last:
                 break
+
+    def read_all_files(self, f: BinaryIO, start_id: int):
+        return [
+            SceneData.from_file(f, file, start_id + n)
+            for n, file in enumerate(self.files)
+        ]
+
+    def write_all_files(self, f: BinaryIO, files: list[SceneData]):
+        contents = BytesIO()
+        offsets: list[int] = []
+        for file in files:
+            offsets.append(contents.tell() // 4 + 0x10)
+            temp = BytesIO()
+            file.write(temp)
+            contents.write(compress(temp.getbuffer()))
+        while len(offsets) < 16:
+            offsets.append(0xFFFFFFFF)
+        for o in offsets:
+            f.write(o.to_bytes(4, "little"))
+        f.write(contents.getvalue())
 
 
 class SceneBin:
     blocks: list[SceneBlock]
 
     def __init__(self, fn: str):
-        self.f = open(fn, 'rb')
+        self.f = open(fn, "rb")
         self.size = stat(fn).st_size
         self.readBlocks()
 
@@ -977,6 +1187,7 @@ class SceneBin:
             ref = b.files[index]
             self.f.seek(ref.blockStart + ref.start)
             return decompress(self.f.read(ref.size).strip(bytes([255])))
+        raise IndexError(f"could not find index {index}")
 
     def dump(self, i: int, fn: str):
-        open(fn, 'wb').write(self.getFileContents(i))
+        open(fn, "wb").write(self.getFileContents(i))

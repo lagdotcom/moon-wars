@@ -1,0 +1,124 @@
+const word Rifle = 0x011a;
+const word ScorpionTail = 0x011b;
+const word SearchScope = 0x011c;
+const word TailLaser = 0x011e;
+const word Anim1 = 0x011f;
+const word Anim2 = 0x0120;
+
+var word TargetMemory at 0x0000;
+var word DefaultMDef at 0x0020;
+var word DefaultDef at 0x0040;
+var byte Count at 0x0060;
+var byte DefaultIdle at 0x0080;
+var byte DefaultHurt at 0x00a0;
+var bit Warning at 0x00c0;
+var bit Stance at 0x00e0;
+
+script setup {
+  DefaultIdle = ReadFlag(Self, IdleAnimID);
+  DefaultHurt = ReadFlag(Self, HurtAnimID);
+  DefaultDef = ReadFlag(Self, Defense);
+  WriteFlag(Self, MagicDefense, 256);
+  DefaultMDef = ReadFlag(Self, MagicDefense);
+  Stance = 0;
+}
+
+script main {
+  switch (Count) {
+    case 0:
+    case 2:
+      TargetMemory = RandomBit(AllOpponentMask);
+      TargetMask = TargetMemory;
+      Perform(EnemyAttack, SearchScope);
+      Print("Locked On Target");
+      Count = Count + 1;
+      break;
+
+    case 1:
+    case 3:
+      TargetMask = TargetMemory;
+      if (Random() % 3 == 0) {
+        Perform(EnemyAttack, ScorpionTail);
+      } else {
+        if (MyHP() < MyMaxHP() / 2) {
+          Perform(EnemyAttack, ScorpionTail);
+        } else {
+          Perform(EnemyAttack, Rifle);
+        }
+      }
+      Count = Count + 1;
+      break;
+
+    case 4:
+      TargetMask = Self;
+      Perform(EnemyAttack, Anim1);
+      WriteFlag(Self, IdleAnimID, 7);
+      WriteFlag(Self, HurtAnimID, 8);
+      WriteFlag(Self, Defense, 255);
+      WriteFlag(Self, MagicDefense, 384);
+      Stance = 1;
+
+      if (Warning == 0) {
+        TargetMask = Mask(_2050, _4060) == 0x10;
+        if (!ReadFlag(TargetMask, Status_Death)) {
+          TargetMask = Mask(_2050, _4060) == 0x11;
+          if (ReadFlag(TargetMask, Status_Death)) {
+            Print("{CLOUD}: It's gonna fire that laser...");
+            Perform(CameraMove, 0);
+          } else {
+            Print("{CLOUD}: {BARRET}, be careful!");
+            Perform(CameraMove, 0);
+          }
+
+          Print("Attack while it's tail's up!");
+          Perform(CameraMove, 0);
+          Print("It's gonna counterattack with its laser.");
+          Perform(CameraMove, 0);
+        } else {
+          Print("{BARRET}: I dunno what's goin' on, but...");
+          Perform(CameraMove, 0);
+          Print("It looks pretty bad.");
+          Perform(CameraMove, 0);
+          Print("Let's see what it does when it's tail's up...");
+          Perform(CameraMove, 0);
+        }
+
+        Warning = 1;
+      }
+
+      Count = Count + 1;
+      break;
+
+    case 5:
+    case 6:
+      Count = Count + 1;
+      break;
+
+    case 7:
+      TargetMask = Self;
+      Perform(EnemyAttack, Anim2);
+      WriteFlag(Self, IdleAnimID, DefaultIdle);
+      WriteFlag(Self, HurtAnimID, DefaultHurt);
+      WriteFlag(Self, Defense, DefaultDef);
+      WriteFlag(Self, MagicDefense, DefaultMDef);
+      Stance = 0;
+      Count = 0;
+      break;
+  }
+}
+
+script counterGeneral {
+  if (Stance == 1) {
+    TargetMask = AllOpponentMask;
+    Perform(EnemyAttack, TailLaser);
+  }
+}
+
+script counterDeath {
+  if (Stance == 1) {
+    TargetMask = Self;
+    Perform(EnemyAttack, Anim2);
+    WriteFlag(Self, IdleAnimID, DefaultIdle);
+    WriteFlag(Self, HurtAnimID, DefaultHurt);
+  }
+}

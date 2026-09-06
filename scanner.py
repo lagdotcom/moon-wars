@@ -2,11 +2,11 @@ from enum import Enum, auto
 
 
 def isAlpha(c: str) -> bool:
-    return c == '_' or c.isalpha()
+    return c == "_" or c.isalpha()
 
 
 def isHexDigit(c: str) -> bool:
-    return c in '0123456789abcdefABCDEF'
+    return c in "0123456789abcdefABCDEF"
 
 
 class TokenType(Enum):
@@ -74,42 +74,42 @@ class Token:
         self.line = line
 
     def __repr__(self) -> str:
-        return '%03d: %s (%s)' % (self.line, self.type, self.value)
+        return "%03d: %s (%s)" % (self.line, self.type, self.value)
 
 
 singleCharOps = {
-    '(': TokenType.LEFT_PAREN,
-    ')': TokenType.RIGHT_PAREN,
-    '{': TokenType.LEFT_BRACE,
-    '}': TokenType.RIGHT_BRACE,
-    ';': TokenType.SEMICOLON,
-    ':': TokenType.COLON,
-    ',': TokenType.COMMA,
-    '-': TokenType.MINUS,
-    '+': TokenType.PLUS,
-    '/': TokenType.DIVIDE,
-    '*': TokenType.TIMES,
-    '%': TokenType.MODULO,
-    '~': TokenType.BIT_NOT,
+    "(": TokenType.LEFT_PAREN,
+    ")": TokenType.RIGHT_PAREN,
+    "{": TokenType.LEFT_BRACE,
+    "}": TokenType.RIGHT_BRACE,
+    ";": TokenType.SEMICOLON,
+    ":": TokenType.COLON,
+    ",": TokenType.COMMA,
+    "-": TokenType.MINUS,
+    "+": TokenType.PLUS,
+    "/": TokenType.DIVIDE,
+    "*": TokenType.TIMES,
+    "%": TokenType.MODULO,
+    "~": TokenType.BIT_NOT,
 }
 
 reservedWords = {
-    'at': TokenType.AT,
-    'bit': TokenType.BIT,
-    'break': TokenType.BREAK,
-    'byte': TokenType.BYTE,
-    'case': TokenType.CASE,
-    'const': TokenType.CONST,
-    'default': TokenType.DEFAULT,
-    'else': TokenType.ELSE,
-    'for': TokenType.FOR,
-    'if': TokenType.IF,
-    'script': TokenType.SCRIPT,
-    'switch': TokenType.SWITCH,
-    'triple': TokenType.TRIPLE,
-    'var': TokenType.VAR,
-    'while': TokenType.WHILE,
-    'word': TokenType.WORD,
+    "at": TokenType.AT,
+    "bit": TokenType.BIT,
+    "break": TokenType.BREAK,
+    "byte": TokenType.BYTE,
+    "case": TokenType.CASE,
+    "const": TokenType.CONST,
+    "default": TokenType.DEFAULT,
+    "else": TokenType.ELSE,
+    "for": TokenType.FOR,
+    "if": TokenType.IF,
+    "script": TokenType.SCRIPT,
+    "switch": TokenType.SWITCH,
+    "triple": TokenType.TRIPLE,
+    "var": TokenType.VAR,
+    "while": TokenType.WHILE,
+    "word": TokenType.WORD,
 }
 
 
@@ -130,19 +130,19 @@ class Scanner:
 
     @property
     def pending(self) -> str:
-        return self.src[self.start:self.current]
+        return self.src[self.start : self.current]
 
     @property
     def peek(self) -> str:
         if self.isAtEnd:
-            return ''
+            return ""
         return self.src[self.current]
 
     @property
     def peekNext(self) -> str:
         if self.isAtEnd:
-            return ''
-        return self.src[self.current+1]
+            return ""
+        return self.src[self.current + 1]
 
     def make(self, type: TokenType) -> Token:
         return Token(type, self.pending, self.line)
@@ -166,14 +166,14 @@ class Scanner:
     def skipWhitespace(self):
         while True:
             c = self.peek
-            if c == ' ' or c == '\r' or c == '\t':
+            if c == " " or c == "\r" or c == "\t":
                 self.advance()
-            elif c == '\n':
+            elif c == "\n":
                 self.line += 1
                 self.advance()
-            elif c == '/':
-                if self.peekNext == '/':
-                    while self.peek != '\n':
+            elif c == "/":
+                if self.peekNext == "/":
+                    while self.peek != "\n":
                         self.advance()
                 else:
                     return
@@ -182,7 +182,7 @@ class Scanner:
 
     def string(self) -> Token:
         while self.peek != '"' and not self.isAtEnd:
-            if self.peek == '\n':
+            if self.peek == "\n":
                 self.line += 1
             self.advance()
 
@@ -196,7 +196,7 @@ class Scanner:
         while self.peek.isdigit():
             self.advance()
 
-        if self.peek == 'x':
+        if self.peek == "x":
             self.advance()
             while isHexDigit(self.peek):
                 self.advance()
@@ -229,31 +229,31 @@ class Scanner:
         if c in singleCharOps:
             return self.make(singleCharOps[c])
 
-        if c == '!':
-            if self.match('='):
+        if c == "!":
+            if self.match("="):
                 return self.make(TokenType.NOT_EQUAL)
             return self.make(TokenType.NOT)
-        elif c == '=':
-            if self.match('='):
+        elif c == "=":
+            if self.match("="):
                 return self.make(TokenType.EQUAL_EQUAL)
             return self.make(TokenType.EQUAL)
-        elif c == '<':
-            if self.match('='):
+        elif c == "<":
+            if self.match("="):
                 return self.make(TokenType.LESS_EQUAL)
             return self.make(TokenType.LESS)
-        elif c == '>':
-            if self.match('='):
+        elif c == ">":
+            if self.match("="):
                 return self.make(TokenType.MORE_EQUAL)
             return self.make(TokenType.MORE)
-        elif c == '&':
-            if self.match('&'):
+        elif c == "&":
+            if self.match("&"):
                 return self.make(TokenType.AND)
             return self.make(TokenType.BIT_AND)
-        elif c == '|':
-            if self.match('|'):
+        elif c == "|":
+            if self.match("|"):
                 return self.make(TokenType.OR)
             return self.make(TokenType.BIT_OR)
         elif c == '"':
             return self.string()
 
-        return self.makeError('Unexpected character')
+        return self.makeError("Unexpected character")

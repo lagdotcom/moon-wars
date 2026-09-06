@@ -1,37 +1,11 @@
-
 from typing import Callable, NamedTuple, Optional
 
 from enums import Precedence, Size
 from ops import Op
 from parser import Parser
-from scanner import Token, TokenType, Scanner
+from scanner import Scanner, Token, TokenType
 from tools import asNumber, splitString, splitThree, splitWord
-
-
-class Constant(NamedTuple):
-    name: str
-    size: Size
-    value: int
-
-    def __repr__(self) -> str:
-        return "const %s %s = %x" % (self.size.name, self.name, self.value)
-
-
-class Variable(NamedTuple):
-    name: str
-    size: Size
-    addr: int
-
-    def __repr__(self) -> str:
-        return "var %s %s at %x" % (self.size.name, self.name, self.addr)
-
-
-class Builtin(NamedTuple):
-    name: str
-    perform: any  # Callable[[Compiler], None]
-
-    def __repr__(self) -> str:
-        return "%s(...)" % self.name
+from vars import Builtin, Constant, Variable, variables
 
 
 class Chunk:
@@ -54,11 +28,11 @@ class Chunk:
         dst = bytes(b)
         self.code += dst
         self.lines += [self.line] * len(dst)
-        #print('wrote:', hexBytes(dst))
+        # print('wrote:', hexBytes(dst))
         return len(dst)
 
     def patch(self, pos: int, *b: int):
-        self.code = self.code[:pos] + bytes(b) + self.code[pos+len(b):]
+        self.code = self.code[:pos] + bytes(b) + self.code[pos + len(b) :]
 
     def read(self, var: Constant | Variable) -> int:
         if isinstance(var, Constant):
@@ -166,14 +140,14 @@ class Chunk:
         return self.raw(Op.NOT.value)
 
     def push(self, value: int) -> int:
-        if value <= 0xff:
+        if value <= 0xFF:
             return self.pushByte(value)
-        elif value <= 0xffff:
+        elif value <= 0xFFFF:
             return self.pushWord(value)
-        elif value <= 0xffffff:
+        elif value <= 0xFFFFFF:
             return self.pushThree(value)
         else:
-            raise Exception('push too big: %x' % value)
+            raise Exception("push too big: %x" % value)
 
     def pushByte(self, value: int) -> int:
         return self.raw(Op.PUSH_BYTE.value, value)
@@ -353,7 +327,7 @@ class Compiler:
         return self.declarations[name.value]
 
     def namedVariable(self, name: Token, canAssign: bool):
-        #print('namedVariable', name, canAssign)
+        # print('namedVariable', name, canAssign)
         if name.value not in self.declarations:
             self.parser.error("Undefined variable: %s" % name.value)
             return
@@ -389,8 +363,7 @@ class Compiler:
         self.consume(TokenType.EQUAL, "Expect equals sign.")
         self.consume(TokenType.NUMBER, "Expect constant value.")
         num = self.previous
-        self.consume(TokenType.SEMICOLON,
-                     "Expect ';' after const declaration.")
+        self.consume(TokenType.SEMICOLON, "Expect ';' after const declaration.")
         self.declare(Constant(name, size, asNumber(num.value)))
 
     def varDeclaration(self):
@@ -399,8 +372,7 @@ class Compiler:
         self.consume(TokenType.AT, "Expect 'at' after variable name.")
         self.consume(TokenType.NUMBER, "Expect constant value.")
         addr = self.previous
-        self.consume(TokenType.SEMICOLON,
-                     "Expect ';' after const declaration.")
+        self.consume(TokenType.SEMICOLON, "Expect ';' after const declaration.")
         self.declare(Variable(name, size, asNumber(addr.value)))
 
     def scriptDeclaration(self):
@@ -421,7 +393,7 @@ class Compiler:
         self.consume(TokenType.RIGHT_BRACE, "Expect '}' after block.")
 
     def emitJump(self, op: Op):
-        self.compiling.raw(op.value, 0xff, 0xff)
+        self.compiling.raw(op.value, 0xFF, 0xFF)
         return self.compiling.len - 2
 
     def patchJump(self, pos: int):
@@ -461,26 +433,25 @@ class Compiler:
         if not self.match(TokenType.SEMICOLON):
             self.expressionStatement()
 
+        exitJump = None
         loopStart = self.compiling.len
         if not self.match(TokenType.SEMICOLON):
             self.expression()
-            self.consume(TokenType.SEMICOLON,
-                         "Expect ';' after loop condition.")
+            self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition.")
             exitJump = self.emitJump(Op.JZ)
 
         if not self.match(TokenType.RIGHT_PAREN):
             bodyJump = self.emitJump(Op.JP)
             incrementStart = self.compiling.len
             self.expression()
-            self.consume(TokenType.RIGHT_PAREN,
-                         "Expect ')' after for clauses.")
+            self.consume(TokenType.RIGHT_PAREN, "Expect ')' after for clauses.")
             self.compiling.jp(loopStart)
             loopStart = incrementStart
             self.patchJump(bodyJump)
 
         self.statement()
         self.compiling.jp(loopStart)
-        if exitJump:
+        if exitJump is not None:
             self.patchJump(exitJump)
 
     def caseStatements(self):
@@ -500,8 +471,8 @@ class Compiler:
         self.consume(TokenType.LEFT_BRACE, "Expect '{'.")
 
         prevJump = None
-        skipJumps = []
-        endJumps = []
+        skipJumps: list[int] = []
+        endJumps: list[int] = []
         # TODO this code kinda blows
         while not self.match(TokenType.RIGHT_BRACE):
             if prevJump:
@@ -563,7 +534,12 @@ class Compiler:
         while self.current.type != TokenType.EOF:
             if self.previous.type == TokenType.SEMICOLON:
                 return
-            if self.current.type in [TokenType.SCRIPT, TokenType.IF, TokenType.CONST, TokenType.VAR]:
+            if self.current.type in [
+                TokenType.SCRIPT,
+                TokenType.IF,
+                TokenType.CONST,
+                TokenType.VAR,
+            ]:
                 return
             self.advance()
 
@@ -754,6 +730,20 @@ def doMask(self: Compiler):
     self.compiling.mask()
 
 
+def doReadFlag(self: Compiler):
+    # TODO this is utterly terrible
+    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.advance()
+    addr = self.resolve(self.previous)
+    self.consume(TokenType.COMMA, "Expect ','.")
+    self.advance()
+    mask = self.resolve(self.previous)
+    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.compiling.read(addr)
+    self.compiling.read(mask)
+    self.compiling.mask()
+
+
 def doWriteFlag(self: Compiler):
     # TODO this is utterly terrible
     self.consume(TokenType.LEFT_PAREN, "Expect '('.")
@@ -769,7 +759,12 @@ def doWriteFlag(self: Compiler):
     self.compiling.ref(addr)
     self.compiling.ref(mask)
     self.compiling.mask()
-    self.compiling.push(asNumber(value.value))
+    if value.type == TokenType.NUMBER:
+        self.compiling.push(asNumber(value.value))
+    elif value.type == TokenType.IDENTIFIER:
+        self.namedVariable(value, False)
+    else:
+        raise ValueError(f"doWriteFlag value = {value}")
     self.compiling.write()
 
 
@@ -791,78 +786,6 @@ def doGreatest(self: Compiler):
     self.compiling.greatest()
 
 
-variables: list[Constant | Variable] = [
-    # used with PerformedAction
-    Constant("CmdSummon", Size.BYTE, 0x03),
-    Constant("CmdWSummon", Size.BYTE, 0x16),
-    Constant("CmdLimit", Size.BYTE, 0x14),
-
-    # used with Perform()
-    Constant("EnemyAttack", Size.BYTE, 0x20),
-    Constant("ExecuteScript", Size.BYTE, 0x22),
-
-    Variable("PerformedAction", Size.BYTE, 0x2000),
-    Variable("GlobalAddress", Size.BYTE, 0x2010),
-    Variable("Self", Size.WORD, 0x2060),
-    Variable("TargetMask", Size.WORD, 0x2070),
-    Variable("AllyMask", Size.WORD, 0x2080),
-    Variable("AllActiveMask", Size.WORD, 0x2090),
-    Variable("AllOpponentMask", Size.WORD, 0x20A0),
-
-    Variable("Status_Death", Size.BIT, 0x4000),
-    Variable("Status_NearDeath", Size.BIT, 0x4001),
-    Variable("Status_Sleep", Size.BIT, 0x4002),
-    Variable("Status_Poison", Size.BIT, 0x4003),
-    Variable("Status_Sadness", Size.BIT, 0x4004),
-    Variable("Status_Fury", Size.BIT, 0x4005),
-    Variable("Status_Confu", Size.BIT, 0x4006),
-    Variable("Status_Silence", Size.BIT, 0x4007),
-    Variable("Status_Haste", Size.BIT, 0x4008),
-    Variable("Status_Slow", Size.BIT, 0x4009),
-    Variable("Status_Stop", Size.BIT, 0x400A),
-    Variable("Status_Frog", Size.BIT, 0x400B),
-    Variable("Status_Small", Size.BIT, 0x400C),
-    Variable("Status_SlowNumb", Size.BIT, 0x400D),
-    Variable("Status_Petrify", Size.BIT, 0x400E),
-    Variable("Status_Regen", Size.BIT, 0x400F),
-    Variable("Status_Barrier", Size.BIT, 0x4010),
-    Variable("Status_MBarrier", Size.BIT, 0x4011),
-    Variable("Status_Reflect", Size.BIT, 0x4012),
-    Variable("Status_Dual", Size.BIT, 0x4013),
-    Variable("Status_Shield", Size.BIT, 0x4014),
-    Variable("Status_DeathSentence", Size.BIT, 0x4015),
-    Variable("Status_Manipulate", Size.BIT, 0x4016),
-    Variable("Status_Berserk", Size.BIT, 0x4017),
-    Variable("Status_Peerless", Size.BIT, 0x4018),
-    Variable("Status_Paralysis", Size.BIT, 0x4019),
-    Variable("Status_Darkness", Size.BIT, 0x401A),
-    Variable("Status_DualDrain", Size.BIT, 0x401B),
-    Variable("Status_DeathForce", Size.BIT, 0x401C),
-    Variable("Status_Resist", Size.BIT, 0x401D),
-    Variable("Status_LuckyGirl", Size.BIT, 0x401E),
-    Variable("Status_Imprisoned", Size.BIT, 0x401F),
-
-    Constant("SideAttack", Size.BIT, 0x4021),
-    Constant("Enabled", Size.BIT, 0x4023),
-    Constant("MainScriptActive", Size.BIT, 0x4024),
-    Constant("Defending", Size.BIT, 0x4025),
-    Constant("BackRow", Size.BIT, 0x4026),
-    Constant("AttackConnected", Size.BIT, 0x4027),
-    Constant("PhysicalImmune", Size.BIT, 0x4028),
-    Constant("MagicalImmune", Size.BIT, 0x4029),
-    Constant("Unreachable", Size.BIT, 0x402B),
-    Constant("DeathImmune", Size.BIT, 0x402C),
-    Constant("DeadUnit", Size.BIT, 0x402D),
-    Constant("Invisible", Size.BIT, 0x402E),
-
-    Constant("IdleAnimID", Size.BYTE, 0x4080),
-    Constant("HurtAnimID", Size.BYTE, 0x4088),
-
-    Constant("PreviousAttacker", Size.WORD, 0x40D0),
-
-    Variable("HP", Size.TRIPLE, 0x4160),
-]
-
 builtins = [
     Builtin("Global", doGlobal),
     Builtin("Greatest", doGreatest),
@@ -874,6 +797,7 @@ builtins = [
     Builtin("Random", doRandom),
     Builtin("RandomBit", doRandomBit),
     Builtin("RandomBitEq", doRandomBitEq),
+    Builtin("ReadFlag", doReadFlag),
     Builtin("WriteFlag", doWriteFlag),
 ]
 

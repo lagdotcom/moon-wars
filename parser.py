@@ -25,7 +25,7 @@ class Parser:
         self.panicMode = True
         pos = "[line %d] Error" % token.line
 
-        if (token.type == TokenType.EOF):
+        if token.type == TokenType.EOF:
             pos += " at end"
         elif token.type != TokenType.ERROR:
             pos += " at '%s'" % token.value

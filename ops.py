@@ -65,3 +65,15 @@ class Op(Enum):
 
     DEBUG = 0xA0  # followed by FF-terminated string
     POP2_A1 = 0xA1  # unused
+
+
+ops_with_address_arg = {
+    Op.READ_BIT,
+    Op.READ_BYTE,
+    Op.READ_THREE,
+    Op.READ_WORD,
+    Op.ADDR_BIT,
+    Op.ADDR_BYTE,
+    Op.ADDR_WORD,
+    Op.ADDR_THREE,
+}
