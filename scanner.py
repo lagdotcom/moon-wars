@@ -1,11 +1,11 @@
 from enum import Enum, auto
 
 
-def isAlpha(c: str) -> bool:
+def is_alpha(c: str):
     return c == "_" or c.isalpha()
 
 
-def isHexDigit(c: str) -> bool:
+def is_hex_digit(c: str):
     return bool(c) and c in "0123456789abcdefABCDEF"
 
 
@@ -73,11 +73,11 @@ class Token:
         self.value = value
         self.line = line
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "%03d: %s (%s)" % (self.line, self.type, self.value)
 
 
-singleCharOps = {
+SINGLE_CHAR_OPS = {
     "(": TokenType.LEFT_PAREN,
     ")": TokenType.RIGHT_PAREN,
     "{": TokenType.LEFT_BRACE,
@@ -93,7 +93,7 @@ singleCharOps = {
     "~": TokenType.BIT_NOT,
 }
 
-reservedWords = {
+RESERVED_WORDS = {
     "at": TokenType.AT,
     "bit": TokenType.BIT,
     "break": TokenType.BREAK,
@@ -125,45 +125,45 @@ class Scanner:
         self.line = line
 
     @property
-    def isAtEnd(self) -> bool:
+    def is_at_end(self):
         return self.current >= len(self.src)
 
     @property
-    def pending(self) -> str:
+    def pending(self):
         return self.src[self.start : self.current]
 
     @property
-    def peek(self) -> str:
-        if self.isAtEnd:
+    def peek(self):
+        if self.is_at_end:
             return ""
         return self.src[self.current]
 
     @property
-    def peekNext(self) -> str:
+    def peek_next(self):
         if self.current + 1 >= len(self.src):
             return ""
         return self.src[self.current + 1]
 
-    def make(self, type: TokenType) -> Token:
+    def make(self, type: TokenType):
         return Token(type, self.pending, self.line)
 
-    def makeError(self, message: str) -> Token:
+    def make_error(self, message: str):
         return Token(TokenType.ERROR, message, self.line)
 
-    def advance(self) -> str:
+    def advance(self):
         ch = self.src[self.current]
         self.current += 1
         return ch
 
-    def match(self, expected: str) -> bool:
-        if self.isAtEnd:
+    def match(self, expected: str):
+        if self.is_at_end:
             return False
         if self.src[self.current] != expected:
             return False
         self.current += 1
         return True
 
-    def skipWhitespace(self):
+    def skip_whitespace(self):
         while True:
             c = self.peek
             if c == " " or c == "\r" or c == "\t":
@@ -172,73 +172,73 @@ class Scanner:
                 self.line += 1
                 self.advance()
             elif c == "/":
-                if self.peekNext == "/":
-                    while self.peek != "\n" and not self.isAtEnd:
+                if self.peek_next == "/":
+                    while self.peek != "\n" and not self.is_at_end:
                         self.advance()
                 else:
                     return
             else:
                 return
 
-    def string(self) -> Token:
-        while self.peek != '"' and not self.isAtEnd:
+    def string(self):
+        while self.peek != '"' and not self.is_at_end:
             if self.peek == "\n":
                 self.line += 1
             self.advance()
 
-        if self.isAtEnd:
-            return self.makeError("Unterminated string.")
+        if self.is_at_end:
+            return self.make_error("Unterminated string.")
 
         self.advance()
         return self.make(TokenType.STRING)
 
-    def number(self) -> Token:
+    def number(self):
         while self.peek.isdigit():
             self.advance()
 
         if self.peek in ("x", "X"):
             self.advance()
-            if not isHexDigit(self.peek):
-                return self.makeError("Invalid hexadecimal number.")
-            while isHexDigit(self.peek):
+            if not is_hex_digit(self.peek):
+                return self.make_error("Invalid hexadecimal number.")
+            while is_hex_digit(self.peek):
                 self.advance()
-        elif isAlpha(self.peek):
-            while isAlpha(self.peek) or self.peek.isdigit():
+        elif is_alpha(self.peek):
+            while is_alpha(self.peek) or self.peek.isdigit():
                 self.advance()
-            return self.makeError("Invalid number.")
+            return self.make_error("Invalid number.")
 
-        if isAlpha(self.peek):
-            while isAlpha(self.peek) or self.peek.isdigit():
+        if is_alpha(self.peek):
+            while is_alpha(self.peek) or self.peek.isdigit():
                 self.advance()
-            return self.makeError("Invalid number.")
+            return self.make_error("Invalid number.")
 
         return self.make(TokenType.NUMBER)
 
-    def identifier(self) -> Token:
-        while isAlpha(self.peek) or self.peek.isdigit():
+    def identifier(self):
+        while is_alpha(self.peek) or self.peek.isdigit():
             self.advance()
-        return self.make(self.identifierType())
+        return self.make(self.identifier_type())
 
-    def identifierType(self) -> TokenType:
+    def identifier_type(self):
         src = self.pending
-        if src in reservedWords:
-            return reservedWords[src]
+        if src in RESERVED_WORDS:
+            return RESERVED_WORDS[src]
         return TokenType.IDENTIFIER
 
-    def token(self) -> Token:
-        self.skipWhitespace()
+    def token(self):
+        self.skip_whitespace()
         self.start = self.current
-        if self.isAtEnd:
+        if self.is_at_end:
             return self.make(TokenType.EOF)
 
         c = self.advance()
-        if isAlpha(c):
+        if is_alpha(c):
             return self.identifier()
         if c.isdigit():
             return self.number()
 
-        if c in singleCharOps:
-            return self.make(singleCharOps[c])
+        if c in SINGLE_CHAR_OPS:
+            return self.make(SINGLE_CHAR_OPS[c])
 
         if c == "!":
             if self.match("="):
@@ -267,4 +267,4 @@ class Scanner:
         elif c == '"':
             return self.string()
 
-        return self.makeError("Unexpected character")
+        return self.make_error("Unexpected character")

@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from enum import Enum
 from io import BytesIO
 from sys import argv, exit
-from typing import NamedTuple, Optional, cast
+from typing import NamedTuple, cast
 
 from compiler import Compiler
 from disassembler import NiceFormatter, ProudClodBinary, ProudClodText
@@ -11,11 +11,11 @@ from scene import (
     SceneBlock,
     SceneData,
     attack_declarations,
-    convertToAIData,
+    convert_to_ai_data,
 )
-from vars import variables
+from vars import DEFAULT_DECLARATIONS
 
-VERSION = "0.22"
+VERSION = "0.31"
 
 
 class Formatter(Enum):
@@ -25,20 +25,20 @@ class Formatter(Enum):
 
 
 class Args(NamedTuple):
-    bin: Optional[str] = None  # scene.bin file
-    scene: Optional[int] = None  # scene index
-    src: Optional[str] = None  # scene file
-    enemy: Optional[str] = None  # enemy ID
-    ai: Optional[str] = None  # AI source file
-    dumpScene: bool = False  # dump all scene data
-    dumpEnemy: bool = False  # dump chosen enemy data
-    dumpAI: bool = False  # dump chosen enemy AI
+    bin: str | None = None  # scene.bin file
+    scene: int | None = None  # scene index
+    src: str | None = None  # scene file
+    enemy: str | None = None  # enemy ID
+    ai: str | None = None  # AI source file
+    dump_scene: bool = False  # dump all scene data
+    dump_enemy: bool = False  # dump chosen enemy data
+    dump_ai: bool = False  # dump chosen enemy AI
     formatter: Formatter = Formatter.Nice  # AI dump formatter
-    showCompiled: bool = False  # dump compiled AI
-    replaceAI: bool = False  # replace enemy AI
+    show_compiled: bool = False  # dump compiled AI
+    replace_ai: bool = False  # replace enemy AI
 
 
-def parse_args(arguments: list[str]) -> Args:
+def parse_args(arguments: list[str]):
     parser = ArgumentParser(description=f"Moon Wars script compiler v{VERSION}")
     parser.add_argument("--bin", help="scene.bin file")
     parser.add_argument("--scene", type=int, help="scene index")
@@ -79,17 +79,17 @@ def process(a: Args):
         fmt = NiceFormatter
 
     comp = None
-    declarations = variables
+    declarations = DEFAULT_DECLARATIONS
 
     if a.ai:
-        aiSource = open(a.ai, "r").read()
+        ai_src = open(a.ai, "r").read()
         comp = Compiler()
-        success = comp.compile(aiSource)
+        success = comp.compile(ai_src)
         declarations = list(comp.declarations.values())
         if not success:
             return die("Error while compiling, exiting early")
 
-        if a.showCompiled:
+        if a.show_compiled:
             for chunk in comp.chunks:
                 print(chunk.name + ":")
                 buf = BytesIO(chunk.code)
@@ -106,7 +106,7 @@ def process(a: Args):
 
         if a.scene is not None:
             try:
-                scene_contents = bin.getFileContents(a.scene)
+                scene_contents = bin.get_file_contents(a.scene)
             except IndexError as error:
                 return die(str(error))
             buf = BytesIO(scene_contents)
@@ -117,7 +117,7 @@ def process(a: Args):
         dat = SceneData(f, -1)
         print("*** Loaded", a.src)
 
-    if a.dumpScene:
+    if a.dump_scene:
         if not dat:
             return die("--dumpScene requires --bin BIN --scene NUM or --src")
 
@@ -160,10 +160,10 @@ def process(a: Args):
         if not en:
             return die("Cannot find enemy of ID: %d" % want)
 
-        if a.dumpEnemy:
+        if a.dump_enemy:
             print(en)
 
-        if a.dumpAI:
+        if a.dump_ai:
             if en.ai:
                 print(f"=== ENEMY {en.id:04x} {en.name}")
                 ai_declarations = declarations + attack_declarations(
@@ -173,13 +173,13 @@ def process(a: Args):
                     print("===", script_name)
                     fmt(BytesIO(script_code), ai_declarations)
 
-    if a.replaceAI:
+    if a.replace_ai:
         if not comp or not dat or not en:
             return die(
                 "Require (--bin BIN --scene NUM or --src SCENE) --ai SRC --enemy ID"
             )
 
-        ai = convertToAIData(comp)
+        ai = convert_to_ai_data(comp)
         print("New AI has:", ai.present)
 
         old_ai = en.ai
@@ -194,7 +194,7 @@ def process(a: Args):
 
         if bin and a.scene is not None:
             ofn = "scene.bin.tmp"
-            original_contents = bin.getFileContents(a.scene)
+            original_contents = bin.get_file_contents(a.scene)
             old_ai_raw = old_ai.raw()
             if original_contents.count(old_ai_raw) != 1:
                 return die("Could not uniquely locate the enemy AI in the scene")

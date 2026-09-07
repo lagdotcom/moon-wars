@@ -1,10 +1,10 @@
 from io import BytesIO
-from typing import BinaryIO, Optional
+from typing import BinaryIO
 
-from ops import Op, ops_with_address_arg
-from strings import translate
-from tools import hexBytes
-from vars import Constant, Declaration, Variable, variables
+from ops import OPS_WITH_ADDRESS_ARG, Op
+from strings import decode
+from tools import hex_bytes
+from vars import DEFAULT_DECLARATIONS, Constant, Declaration, Variable
 
 
 class NumberOperand:
@@ -16,7 +16,7 @@ class NumberOperand:
         self.raw = f.read(size)[::-1]
 
     def __repr__(self):
-        return hexBytes(self.raw)
+        return hex_bytes(self.raw)
 
     @property
     def value(self):
@@ -56,17 +56,17 @@ class StringOperand:
         self.raw = str
 
     @property
-    def asString(self):
-        return translate(self.raw[:-1])
+    def as_string(self):
+        return decode(self.raw[:-1])
 
     def __repr__(self):
-        return self.asString
+        return self.as_string
 
 
 type AnyOperand = ByteOperand | WordOperand | TripleOperand | StringOperand
 
 
-ops = {
+OPS = {
     Op.READ_BIT: "read.bit",
     Op.READ_BYTE: "read.b",
     Op.READ_WORD: "read.w",
@@ -120,7 +120,7 @@ ops = {
     Op.POP2_A1: "pop2_a1",
 }
 
-args: dict[Op, type[AnyOperand]] = {
+OP_ARGS: dict[Op, type[AnyOperand]] = {
     Op.READ_BIT: WordOperand,
     Op.READ_BYTE: WordOperand,
     Op.READ_WORD: WordOperand,
@@ -154,7 +154,7 @@ def get_arg_name(arg: AnyOperand, declarations: list[Declaration]):
 
 
 class Formatter:
-    def __init__(self, f: BinaryIO, declarations: list[Declaration]) -> None:
+    def __init__(self, f: BinaryIO, declarations: list[Declaration]):
         self.process(f, declarations)
 
     def process(self, f: BinaryIO, declarations: list[Declaration]):
@@ -165,92 +165,92 @@ class Formatter:
             if not len(code):
                 break
             op = Op(code[0])
-            if op not in ops:
+            if op not in OPS:
                 print("Unknown opcode: %s" % op)
                 break
-            if op in args:
-                arg = args[op](f)
+            if op in OP_ARGS:
+                arg = OP_ARGS[op](f)
                 arg_name = (
                     get_arg_name(arg, declarations)
-                    if op in ops_with_address_arg
+                    if op in OPS_WITH_ADDRESS_ARG
                     else None
                 )
-                self.showOpWithArg(location, op, arg, arg_name)
+                self.show_op_with_arg(location, op, arg, arg_name)
             else:
-                self.showOp(location, op)
+                self.show_op(location, op)
             location += f.tell() - old
 
-    def showOp(self, location: int, op: Op):
+    def show_op(self, location: int, op: Op):
         print("op:", op)
 
-    def showOpWithArg(
+    def show_op_with_arg(
         self,
         location: int,
         op: Op,
         arg: ByteOperand | WordOperand | TripleOperand | StringOperand,
-        argName: Optional[str],
+        arg_name: str | None,
     ):
         print("op:", op, arg)
 
 
 class ProudClodBinary(Formatter):
-    def showOp(self, location: int, op: Op):
+    def show_op(self, location: int, op: Op):
         print("%02X" % op.value)
 
-    def showOpWithArg(
+    def show_op_with_arg(
         self,
         location: int,
         op: Op,
         arg: ByteOperand | WordOperand | TripleOperand | StringOperand,
-        argName: Optional[str],
+        arg_name: str | None,
     ):
         if isinstance(arg, StringOperand):
-            argText = arg.asString
+            arg_text = arg.as_string
         else:
-            argText = hexBytes(arg.raw, "%02X")[1:]
-        print("%02X\t%s" % (op.value, argText))
+            arg_text = hex_bytes(arg.raw, "%02X")[1:]
+        print("%02X\t%s" % (op.value, arg_text))
 
 
 class ProudClodText(Formatter):
-    def showOp(self, location: int, op: Op):
+    def show_op(self, location: int, op: Op):
         print("0x%03X\t%02X" % (location, op.value))
 
-    def showOpWithArg(
+    def show_op_with_arg(
         self,
         location: int,
         op: Op,
         arg: ByteOperand | WordOperand | TripleOperand | StringOperand,
-        argName: Optional[str],
+        arg_name: str | None,
     ):
         if isinstance(arg, StringOperand):
-            argText = arg.asString
+            arg_text = arg.as_string
         else:
-            argText = hexBytes(arg.raw, "%02X")[1:]
-        print("0x%03X\t%02X\t%s" % (location, op.value, argText))
+            arg_text = hex_bytes(arg.raw, "%02X")[1:]
+        print("0x%03X\t%02X\t%s" % (location, op.value, arg_text))
 
 
 class NiceFormatter(Formatter):
-    def showOp(self, location: int, op: Op):
-        mne = ops[op]
+    def show_op(self, location: int, op: Op):
+        mne = OPS[op]
         print("%04x %02x\t       %s" % (location, op.value, mne))
 
-    def showOpWithArg(
+    def show_op_with_arg(
         self,
         location: int,
         op: Op,
         arg: ByteOperand | WordOperand | TripleOperand | StringOperand,
-        argName: Optional[str],
+        arg_name: str | None,
     ):
-        mne = ops[op]
-        argHex = hexBytes(arg.raw)[1:]
-        if len(argHex) > 6:
-            argHex = argHex[:3] + "..."
-        extra = f"# {argName}" if argName else ""
+        mne = OPS[op]
+        arg_hex = hex_bytes(arg.raw)[1:]
+        if len(arg_hex) > 6:
+            arg_hex = arg_hex[:3] + "..."
+        extra = f"# {arg_name}" if arg_name else ""
         command = "%s %s" % (mne, arg)
-        print("%04x %02x\t%-6s %-24s%s" % (location, op.value, argHex, command, extra))
+        print("%04x %02x\t%-6s %-24s%s" % (location, op.value, arg_hex, command, extra))
 
 
 if __name__ == "__main__":
     raw = b"\x01\x00\x00\x60\x00\x71\x00\x0b\x72\x00\x10\x60\x01\x71\x00\x45\x12\x20\x70\x02\x20\xa0\x82\x90\x60\x20\x61\x02\x49\x92\x81\x01\x00\x20\x34\x52\x70\x00\x35\x12\x20\x70\x02\x20\xa0\x82\x90"
     f = BytesIO(raw)
-    NiceFormatter(f, variables)
+    NiceFormatter(f, DEFAULT_DECLARATIONS)

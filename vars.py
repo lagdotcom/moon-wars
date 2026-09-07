@@ -11,7 +11,7 @@ class Constant(NamedTuple):
     size: Size
     value: int
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "const %s %s = %x" % (self.size.name, self.name, self.value)
 
 
@@ -20,7 +20,7 @@ class Variable(NamedTuple):
     size: Size
     addr: int
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "var %s %s at %x" % (self.size.name, self.name, self.addr)
 
 
@@ -28,14 +28,14 @@ class Builtin(NamedTuple):
     name: str
     perform: Callable[["Compiler"], None]
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "%s(...)" % self.name
 
 
 type Declaration = Builtin | Constant | Variable
 
 
-variables: list[Declaration] = [
+DEFAULT_DECLARATIONS: list[Declaration] = [
     # used with PerformedAction
     Constant("CmdSummon", Size.BYTE, 0x03),
     Constant("CmdWSummon", Size.BYTE, 0x16),
@@ -44,14 +44,21 @@ variables: list[Declaration] = [
     Constant("EnemyAttack", Size.BYTE, 0x20),
     Constant("ExecuteScript", Size.BYTE, 0x22),
     Constant("CameraMove", Size.BYTE, 0x24),
+    # common addresses
     Variable("PerformedAction", Size.BYTE, 0x2000),
+    Variable("_2008", Size.BYTE, 0x2008),
     Variable("GlobalAddress", Size.BYTE, 0x2010),
+    Variable("_2018", Size.BYTE, 0x2018),
+    Variable("_2020", Size.BYTE, 0x2020),
+    Variable("_2040", Size.WORD, 0x2040),
     Variable("_2050", Size.WORD, 0x2050),
     Variable("Self", Size.WORD, 0x2060),
     Variable("TargetMask", Size.WORD, 0x2070),
     Variable("AllyMask", Size.WORD, 0x2080),
     Variable("AllActiveMask", Size.WORD, 0x2090),
     Variable("AllOpponentMask", Size.WORD, 0x20A0),
+    Variable("_2120", Size.WORD, 0x2120),
+    Variable("_2140", Size.WORD, 0x2140),
     Variable("Status_Death", Size.BIT, 0x4000),
     Variable("Status_NearDeath", Size.BIT, 0x4001),
     Variable("Status_Sleep", Size.BIT, 0x4002),
@@ -84,7 +91,9 @@ variables: list[Declaration] = [
     Variable("Status_Resist", Size.BIT, 0x401D),
     Variable("Status_LuckyGirl", Size.BIT, 0x401E),
     Variable("Status_Imprisoned", Size.BIT, 0x401F),
+    Constant("_4020", Size.BIT, 0x4020),
     Constant("SideAttack", Size.BIT, 0x4021),
+    Constant("_4022", Size.BIT, 0x4022),
     Constant("Enabled", Size.BIT, 0x4023),
     Constant("MainScriptActive", Size.BIT, 0x4024),
     Constant("Defending", Size.BIT, 0x4025),
@@ -97,10 +106,21 @@ variables: list[Declaration] = [
     Constant("DeadUnit", Size.BIT, 0x402D),
     Constant("Invisible", Size.BIT, 0x402E),
     Variable("_4060", Size.BYTE, 0x4060),
+    Variable("DefensePercent", Size.BYTE, 0x4078),
     Constant("IdleAnimID", Size.BYTE, 0x4080),
     Constant("HurtAnimID", Size.BYTE, 0x4088),
+    Variable("_40a0", Size.BYTE, 0x40A0),
     Constant("PreviousAttacker", Size.WORD, 0x40D0),
+    Constant("_40e0", Size.WORD, 0x40E0),
+    Constant("_40f0", Size.WORD, 0x40F0),
     Variable("Defense", Size.WORD, 0x4100),
     Variable("MagicDefense", Size.WORD, 0x4110),
+    Variable("_4120", Size.WORD, 0x4120),
+    Variable("MP", Size.WORD, 0x4140),
     Variable("HP", Size.TRIPLE, 0x4160),
+    Variable("MaxHP", Size.TRIPLE, 0x4180),
+    Constant("_41e0", Size.TRIPLE, 0x41E0),
+    Constant("_4200", Size.TRIPLE, 0x4200),
+    Variable("Range", Size.BYTE, 0x4270),
+    Variable("_4278", Size.BYTE, 0x4278),
 ]

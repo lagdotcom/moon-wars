@@ -3,20 +3,20 @@ from gzip import compress, decompress
 from io import BytesIO
 from os import stat
 from struct import pack, unpack
-from typing import BinaryIO, Iterable, NamedTuple, Optional
+from typing import BinaryIO, Iterable, NamedTuple
 
 from compiler import Compiler
 from enums import Size
-from strings import translate, untranslate
+from strings import decode, encode
 from vars import Constant
 
 
-def fixString(b: bytes):
-    return translate(b.strip(b"\xff\0"))
+def fix_string(b: bytes):
+    return decode(b.strip(b"\xff\0"))
 
 
-def padString(s: str, size: int, ch: bytes = b"\xff"):
-    p = untranslate(s)
+def pad_string(s: str, size: int, ch: bytes = b"\xff"):
+    p = encode(s)
     while len(p) < size:
         p += ch
     return p
@@ -243,18 +243,18 @@ class ItemDropSteal:
         self.steal = not drop
         self.rate = rate
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         if self.drop:
-            return "Drop (%d/64)" % self.rate
-        return "Steal (%d/64)" % self.rate
+            return "Drop (%d/64)" % (self.rate + 1)
+        return "Steal (%d/64)" % (self.rate + 1)
 
-    def raw(self) -> int:
+    def raw(self):
         if self.drop:
             return self.rate
         return self.rate | 0x80
 
 
-scriptNames = [
+SCRIPT_NAMES = [
     "Initialize",
     "Main",
     "General Counter",
@@ -278,9 +278,9 @@ class AIData:
     offsets: list[int]
     src: bytes
 
-    def __init__(self, f: Optional[BinaryIO]) -> None:
+    def __init__(self, f: BinaryIO | None):
         if f:
-            _start = f.tell()
+            # start = f.tell()
             self.offsets = list(unpack("<hhhhhhhhhhhhhhhh", f.read(32)))
             highest = -1
             for o in self.offsets:
@@ -299,13 +299,13 @@ class AIData:
                     if ch == b"\x73":
                         break
 
-    def raw(self) -> bytes:
+    def raw(self):
         code = pack("<hhhhhhhhhhhhhhhh", *self.offsets) + self.src
         if len(code) % 2:
             code += b"\xff"
         return code
 
-    def scripts(self) -> Iterable[tuple[str, bytes]]:
+    def scripts(self):
         present = sorted(
             (offset - 0x20, slot)
             for slot, offset in enumerate(self.offsets)
@@ -313,18 +313,18 @@ class AIData:
         )
         for index, (start, slot) in enumerate(present):
             end = present[index + 1][0] if index + 1 < len(present) else len(self.src)
-            yield scriptNames[slot], self.src[start:end]
+            yield SCRIPT_NAMES[slot], self.src[start:end]
 
     @property
-    def present(self) -> str:
+    def present(self):
         scripts: list[str] = []
         for i in range(16):
             if self.offsets[i] != -1:
-                scripts.append(scriptNames[i])
+                scripts.append(SCRIPT_NAMES[i])
         return ", ".join(scripts)
 
 
-aiSlotNames = {
+AI_SLOT_NAMES = {
     "initialize": 0,
     "setup": 0,
     "main": 1,
@@ -346,14 +346,14 @@ aiSlotNames = {
 }
 
 
-def convertToAIData(c: Compiler) -> AIData:
+def convert_to_ai_data(c: Compiler):
     offsets = [-1] * 16
     src = bytes()
     for ch in c.chunks:
         nam = ch.name.lower()
-        if nam not in aiSlotNames:
+        if nam not in AI_SLOT_NAMES:
             raise Exception("Unknown AI slot: %s" % ch.name)
-        slot = aiSlotNames[nam]
+        slot = AI_SLOT_NAMES[nam]
         if offsets[slot] != -1:
             raise ValueError("Duplicate AI script slot: %s" % ch.name)
         offsets[slot] = len(src) + 0x20
@@ -375,33 +375,33 @@ class Enemy:
     strength: int
     defense: int
     magic: int
-    magicDefense: int
+    magic_defense: int
     elements: dict[ElementIndex, ElementRate]
     animations: Iterable[int]
     attacks: Iterable[int]
     movements: Iterable[int]
     items: dict[int, ItemDropSteal]
-    autoAttacks: Iterable[int]
+    auto_attacks: Iterable[int]
     unknown9A: int
     mp: int
     ap: int
     morph: int
-    backMultiplier: float
+    back_multiplier: float
     hp: int
     exp: int
     gil: int
     immunity: StatusEffect
     unknownB4: int
-    ai: Optional[AIData] = None
+    ai: AIData | None = None
 
     @property
-    def elementalRates(self) -> str:
+    def elemental_rates(self):
         rates: list[str] = []
         for e, r in self.elements.items():
             rates.append("%s (%s)" % (e.name, r.name))
         return ", ".join(rates)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "\n".join(
             [
                 "%s (#%04x), Level %d" % (self.name, self.id, self.level),
@@ -413,12 +413,12 @@ class Enemy:
                     self.strength,
                     self.defense,
                     self.magic,
-                    self.magicDefense,
+                    self.magic_defense,
                 ),
                 "HP: %d  MP: %d  EXP: %d  Gil: %d  AP: %d"
                 % (self.hp, self.mp, self.exp, self.gil, self.ap),
                 "Items: %s" % self.items,
-                "Elements: %s" % self.elementalRates,
+                "Elements: %s" % self.elemental_rates,
                 "Immunities: %s" % self.immunity.name,
                 "AI Scripts: %s" % self.ai.present if self.ai else "No AI Scripts",
             ]
@@ -434,7 +434,7 @@ class Enemy:
             self.strength,
             self.defense,
             self.magic,
-            self.magicDefense,
+            self.magic_defense,
         ) = unpack("<32sBBBBBBBB", f.read(40))
         elems = unpack("<bbbbbbbb", f.read(8))
         erates = unpack("<bbbbbbbb", f.read(8))
@@ -443,7 +443,7 @@ class Enemy:
         self.movements = unpack("<hhhhhhhhhhhhhhhh", f.read(32))
         irates = unpack("<BBBB", f.read(4))
         items = unpack("<hhhh", f.read(8))
-        self.autoAttacks = unpack("<hhh", f.read(6))
+        self.auto_attacks = unpack("<hhh", f.read(6))
         (
             self.unknown9A,
             self.mp,
@@ -457,7 +457,7 @@ class Enemy:
             immune,
             self.unknownB4,
         ) = unpack("<HHHhBBIIIII", f.read(30))
-        self.name = fixString(name)
+        self.name = fix_string(name)
         self.elements = {}
         for i in range(8):
             e, r = elems[i], erates[i]
@@ -475,14 +475,14 @@ class Enemy:
                 rate -= 0x80
                 drop = False
             self.items[id] = ItemDropSteal(drop, rate)
-        self.backMultiplier = mul / 8
+        self.back_multiplier = mul / 8
         if immune == 0xFFFFFFFF:
             immune = 0
         else:
             immune = ~immune
         self.immunity = StatusEffect(immune)
 
-    def gatherElemRates(self):
+    def gather_elem_rates(self):
         elems = [-1] * 8
         erates = [-1] * 8
         i = 0
@@ -492,7 +492,7 @@ class Enemy:
             i += 1
         return elems, erates
 
-    def gatherItemRates(self):
+    def gather_item_rates(self):
         irates = [255] * 4
         items = [-1] * 4
         i = 0
@@ -503,10 +503,10 @@ class Enemy:
         return items, irates
 
     def write(self, f: BinaryIO):
-        name = padString(self.name, 32)
-        elems, erates = self.gatherElemRates()
-        items, irates = self.gatherItemRates()
-        mul = int(self.backMultiplier * 8)
+        name = pad_string(self.name, 32)
+        elems, erates = self.gather_elem_rates()
+        items, irates = self.gather_item_rates()
+        mul = int(self.back_multiplier * 8)
         immune = self.immunity.conjugate()
         f.write(
             pack(
@@ -519,7 +519,7 @@ class Enemy:
                 self.strength,
                 self.defense,
                 self.magic,
-                self.magicDefense,
+                self.magic_defense,
             )
         )
         f.write(pack("<bbbbbbbb", *elems))
@@ -529,7 +529,7 @@ class Enemy:
         f.write(pack("<hhhhhhhhhhhhhhhh", *self.movements))
         f.write(pack("<BBBB", *irates))
         f.write(pack("<hhhh", *items))
-        f.write(pack("<hhh", *self.autoAttacks))
+        f.write(pack("<hhh", *self.auto_attacks))
         f.write(
             pack(
                 "<HHHhBBIIIII",
@@ -582,10 +582,10 @@ class SetupLayout(Enum):
 
 class Setup:
     location: BattleLocation
-    continuation: Optional[int]
+    continuation: int | None
     escape: int
     pad: int
-    nextArenaBattle: list[int]
+    next_arena_battle: list[int]
     flags: SetupFlags
     layout: SetupLayout
     camera: int
@@ -609,16 +609,18 @@ class Setup:
             self.continuation = cont
         else:
             self.continuation = None
-        self.nextArenaBattle = [x for x in [arena1, arena2, arena3, arena4] if x != 999]
+        self.next_arena_battle = [
+            x for x in [arena1, arena2, arena3, arena4] if x != 999
+        ]
         self.flags = SetupFlags(~flags)
         self.layout = SetupLayout(layout)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "Setup[%s, %s, %s, %s, %s, %s, %s]" % (
             self.location,
             self.continuation,
             self.escape,
-            self.nextArenaBattle,
+            self.next_arena_battle,
             self.flags.name,
             self.layout,
             self.camera,
@@ -630,7 +632,7 @@ class Setup:
             cont = self.continuation
         else:
             cont = -1
-        arenas = self.nextArenaBattle[:]
+        arenas = self.next_arena_battle[:]
         while len(arenas) < 4:
             arenas.append(999)
         flags = self.flags.value
@@ -655,7 +657,7 @@ class CameraPosition:
         self.pos = unpack("<HHH", f.read(6))
         self.ang = unpack("<HHH", f.read(6))
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         pos = "(%d,%d,%d)" % self.pos
         ang = "(%d,%d,%d)" % self.ang
         return "%s@%s" % (pos, ang)
@@ -694,7 +696,7 @@ class FormationEnemy:
         )
         self.flags = FormationEnemyFlags(flags)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "Enemy[#%04x, (%d,%d,%d), %d, %d, %s]" % (
             self.id,
             self.x,
@@ -718,7 +720,7 @@ class Formation:
     def __init__(self, f: BinaryIO):
         self.enemies = [e for e in [FormationEnemy(f) for _ in range(6)] if e.id != -1]
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "Formation:" + "".join(["\n\t" + str(e) for e in self.enemies])
 
     def write(self, f: BinaryIO):
@@ -741,7 +743,7 @@ class TargetFlags(IntFlag):
     OneAtRandom = 0x80
 
 
-standardFormulae = {
+STANDARD_FORMULAE = {
     0: "No Damage",
     1: "(Power / 16) * (Stat + [(Level + Stat) / 32]^2) {SAD/SPLIT/BAR/VAR}",
     2: "(Power / 16) * ((Lvl + Stat) * 6) {SAD/SPLIT/BAR/VAR}",
@@ -754,7 +756,7 @@ standardFormulae = {
     9: "Throw",
     10: "Coin",
 }
-specialFormulae = {
+SPECIAL_FORMULAE = {
     0: "100% User's HP",
     8: "Dice Roll x 100",
     9: "Number of Escapes * 256",
@@ -763,7 +765,7 @@ specialFormulae = {
     12: "10 x Target's Kills",
     13: "1111 x Target's Materia",
 }
-alteredFormulae = {
+ALTERED_FORMULAE = {
     0: "Damage * (1 + [User's Status Effects])",
     1: "Damage * (2 if Near-Death, 4 if in D.Sentence [can stack to 8], 1 if neither)",
     2: "Damage * (1 + Dead Allies)",
@@ -776,49 +778,47 @@ alteredFormulae = {
 }
 
 
-def lookup(d: dict[int, str], i: int) -> str:
-    if i in d:
-        return d[i]
-    return "Unknown: %x" % i
+def lookup(d: dict[int, str], i: int):
+    return d.get(i, f"Unknown: {i:x}")
 
 
-def describeDamageCalculation(calc: int, acc: int) -> str:
+def describe_damage_calculation(calc: int, acc: int) -> str:
     upper = calc >> 4
     lower = calc % 4
     if upper == 0 or upper == 3:
-        return r"Physical, always hits >> " + lookup(standardFormulae, lower)
+        return r"Physical, always hits >> " + lookup(STANDARD_FORMULAE, lower)
     elif upper == 1:
         return "Physical, %d%% hit rate, Allow Critical >> " % acc + lookup(
-            standardFormulae, lower
+            STANDARD_FORMULAE, lower
         )
     elif upper == 2:
-        return "Magical, %d%% hit rate >> " % acc + lookup(standardFormulae, lower)
+        return "Magical, %d%% hit rate >> " % acc + lookup(STANDARD_FORMULAE, lower)
     elif upper == 4 or upper == 5:
-        return r"Magical, always hits >> " + lookup(standardFormulae, lower)
+        return r"Magical, always hits >> " + lookup(STANDARD_FORMULAE, lower)
     elif upper == 6:
         return "Physical, %d%% hit rate, Allow Critical >> " % acc + lookup(
-            specialFormulae, lower
+            SPECIAL_FORMULAE, lower
         )
     elif upper == 7:
-        return "Magical, %d%% hit rate >> " % acc + lookup(specialFormulae, lower)
+        return "Magical, %d%% hit rate >> " % acc + lookup(SPECIAL_FORMULAE, lower)
     elif upper == 8:
         return "Magical, only hits level mod %d >> " % acc + lookup(
-            standardFormulae, lower
+            STANDARD_FORMULAE, lower
         )
     elif upper == 9:
-        return 'Magical, "Manipulate" accuracy >> ' + lookup(standardFormulae, lower)
+        return 'Magical, "Manipulate" accuracy >> ' + lookup(STANDARD_FORMULAE, lower)
     elif upper == 10:
         return (
-            describeDamageCalculation(0x11, acc)
+            describe_damage_calculation(0x11, acc)
             + " >> "
-            + lookup(alteredFormulae, lower)
+            + lookup(ALTERED_FORMULAE, lower)
         )
     elif upper == 11:
-        return "Physical, %d%% hit rate >> " % acc + lookup(standardFormulae, lower)
+        return "Physical, %d%% hit rate >> " % acc + lookup(STANDARD_FORMULAE, lower)
     return "Unknown: %02x" % calc
 
 
-specialEffects = {
+SPECIAL_EFFECTS = {
     0: "%d hit(s)",
     1: "if enemies are immune, do Gunge Lance",
     2: "summon Fat Chocobo, %d/255 chance",
@@ -858,9 +858,9 @@ specialEffects = {
 }
 
 
-def describeSpecialEffect(effect: int, mod: int) -> str:
-    if effect in specialEffects:
-        s = specialEffects[effect]
+def describe_special_effect(effect: int, mod: int):
+    if effect in SPECIAL_EFFECTS:
+        s = SPECIAL_EFFECTS[effect]
         if "%" in s:
             return s % mod
         return s
@@ -897,25 +897,40 @@ class AttackFlags(IntFlag):
 class Attack:
     id: int
     name: str
+    accuracy: int
+    impact_effect: int
+    hurt_action: int
+    unknown03: int
+    cost: int
+    impact_sound: int
+    camera_single: int
+    camera_multiple: int
+    effect_id: int
+    calculation: int
+    power: int
+    status_change: int
+    special: int
+    special_mod: int
+    status: int
 
-    def __init__(self, f: BinaryIO) -> None:
+    def __init__(self, f: BinaryIO):
         (
             self.accuracy,
-            self.impactEffect,
-            self.hurtAction,
+            self.impact_effect,
+            self.hurt_action,
             self.unknown03,
             self.cost,
-            self.impactSound,
-            self.cameraSingle,
-            self.cameraMultiple,
+            self.impact_sound,
+            self.camera_single,
+            self.camera_multiple,
             target,
-            self.effectId,
+            self.effect_id,
             self.calculation,
             self.power,
             condition,
-            self.statusChange,
+            self.status_change,
             self.special,
-            self.specialMod,
+            self.special_mod,
             self.status,
             element,
             flags,
@@ -938,21 +953,21 @@ class Attack:
             pack(
                 "<BBBBHHHHBBBBBBbbIHH",
                 self.accuracy,
-                self.impactEffect,
-                self.hurtAction,
+                self.impact_effect,
+                self.hurt_action,
                 self.unknown03,
                 self.cost,
-                self.impactSound,
-                self.cameraSingle,
-                self.cameraMultiple,
+                self.impact_sound,
+                self.camera_single,
+                self.camera_multiple,
                 target,
-                self.effectId,
+                self.effect_id,
                 self.calculation,
                 self.power,
                 condition,
-                self.statusChange,
+                self.status_change,
                 self.special,
-                self.specialMod,
+                self.special_mod,
                 self.status,
                 element,
                 flags,
@@ -960,12 +975,12 @@ class Attack:
         )
 
     @property
-    def statusEffects(self) -> str:
+    def status_effects(self):
         if self.status == 0xFFFFFFFF:
             return "No Status Effects"
-        chance = self.statusChange & 0x3F
-        cure = self.statusChange & 0x40
-        toggle = self.statusChange & 0x80
+        chance = self.status_change & 0x3F
+        cure = self.status_change & 0x40
+        toggle = self.status_change & 0x80
         effect = "Inflict"
         if toggle:
             effect = "Toggle"
@@ -973,17 +988,17 @@ class Attack:
             effect = "Cure"
         return "%s (%d/63): %s" % (effect, chance, StatusEffect(self.status))
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         lines = [
             "%s (#%04x), %s" % (self.name, self.id, self.target),
             "MP: %d  Power: %d  %s  %s  %s"
             % (self.cost, self.power, self.condition, self.element, self.flags),
-            describeDamageCalculation(self.calculation, self.accuracy),
+            describe_damage_calculation(self.calculation, self.accuracy),
         ]
         if self.special != -1:
-            lines.append(describeSpecialEffect(self.special, self.specialMod))
+            lines.append(describe_special_effect(self.special, self.special_mod))
         if self.status != 0xFFFFFFFF:
-            lines.append(self.statusEffects)
+            lines.append(self.status_effects)
         return "\n".join(lines)
 
 
@@ -1016,62 +1031,62 @@ class SceneData:
     cameras: list[CameraPlacement]
     formations: list[Formation]
     attacks: list[Attack]
-    aiOffsets: Iterable[int]
+    ai_offsets: Iterable[int]
     ai: bytes
 
     def __init__(self, f: BinaryIO, id: int):
         self.id = id
         self.enemies = [Enemy(), Enemy(), Enemy()]
-        self.readIDs(f)
-        self.readSetups(f)
-        self.readCameras(f)
-        self.readFormations(f)
-        self.readEnemies(f)
-        self.readAttacks(f)
-        self.readFormationAI(f)
-        self.readEnemyAI(f)
+        self.read_ids(f)
+        self.read_setups(f)
+        self.read_cameras(f)
+        self.read_formations(f)
+        self.read_enemies(f)
+        self.read_attacks(f)
+        self.read_formation_ai(f)
+        self.read_enemy_ai(f)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return f"Scene #{self.id}"
 
     @staticmethod
     def from_file(f: BinaryIO, ref: "SceneFile", id: int):
-        f.seek(ref.blockStart + ref.start)
+        f.seek(ref.block_start + ref.start)
         compressed = f.read(ref.size).strip(b"\xff")
         decompressed = decompress(compressed)
         return SceneData(BytesIO(decompressed), id)
 
-    def readIDs(self, f: BinaryIO):
+    def read_ids(self, f: BinaryIO):
         ida, idb, idc, self.idPadding = unpack("<hhhh", f.read(8))
         self.enemies[0].id = ida
         self.enemies[1].id = idb
         self.enemies[2].id = idc
 
-    def readSetups(self, f: BinaryIO):
+    def read_setups(self, f: BinaryIO):
         self.setups = [Setup(f) for _ in range(4)]
 
-    def readCameras(self, f: BinaryIO):
+    def read_cameras(self, f: BinaryIO):
         self.cameras = [CameraPlacement(f) for _ in range(4)]
 
-    def readFormations(self, f: BinaryIO):
+    def read_formations(self, f: BinaryIO):
         self.formations = [Formation(f) for _ in range(4)]
 
-    def readEnemies(self, f: BinaryIO):
+    def read_enemies(self, f: BinaryIO):
         for enemy in self.enemies:
             enemy.read(f)
 
-    def readAttacks(self, f: BinaryIO):
+    def read_attacks(self, f: BinaryIO):
         self.attacks = [Attack(f) for _ in range(32)]
         ids = unpack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", f.read(64))
         for i in range(32):
             self.attacks[i].id = ids[i]
-            self.attacks[i].name = fixString(f.read(32))
+            self.attacks[i].name = fix_string(f.read(32))
 
-    def readFormationAI(self, f: BinaryIO):
-        self.aiOffsets = unpack("<hhhh", f.read(8))
+    def read_formation_ai(self, f: BinaryIO):
+        self.ai_offsets = unpack("<hhhh", f.read(8))
         self.ai = f.read(504)
 
-    def readEnemyAI(self, f: BinaryIO):
+    def read_enemy_ai(self, f: BinaryIO):
         start = f.tell()  # should always be 0xE80
         offsets = unpack("<hhh", f.read(6))
         for i in range(3):
@@ -1087,18 +1102,18 @@ class SceneData:
 
     def write(self, f: BinaryIO):
         s = f.tell()
-        self.writeIDs(f)
-        self.writeSetups(f)
-        self.writeCameras(f)
-        self.writeFormations(f)
-        self.writeEnemies(f)
-        self.writeAttacks(f)
-        self.writeFormationAI(f)
-        self.writeEnemyAI(f)
+        self.write_ids(f)
+        self.write_setups(f)
+        self.write_cameras(f)
+        self.write_formations(f)
+        self.write_enemies(f)
+        self.write_attacks(f)
+        self.write_formation_ai(f)
+        self.write_enemy_ai(f)
         padding = 0x1E80 - f.tell() + s
         f.write(b"\xff" * padding)
 
-    def writeIDs(self, f: BinaryIO):
+    def write_ids(self, f: BinaryIO):
         f.write(
             pack(
                 "<hhhh",
@@ -1109,37 +1124,37 @@ class SceneData:
             )
         )
 
-    def writeSetups(self, f: BinaryIO):
+    def write_setups(self, f: BinaryIO):
         for o in self.setups:
             o.write(f)
 
-    def writeCameras(self, f: BinaryIO):
+    def write_cameras(self, f: BinaryIO):
         for o in self.cameras:
             o.write(f)
 
-    def writeFormations(self, f: BinaryIO):
+    def write_formations(self, f: BinaryIO):
         for o in self.formations:
             o.write(f)
 
-    def writeEnemies(self, f: BinaryIO):
+    def write_enemies(self, f: BinaryIO):
         for o in self.enemies:
             o.write(f)
 
-    def writeAttacks(self, f: BinaryIO):
+    def write_attacks(self, f: BinaryIO):
         ids: list[int] = []
         names = bytes()
         for o in self.attacks:
             o.write(f)
             ids.append(o.id)
-            names += padString(o.name, 32)
+            names += pad_string(o.name, 32)
         f.write(pack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", *ids))
         f.write(names)
 
-    def writeFormationAI(self, f: BinaryIO):
-        f.write(pack("<hhhh", *self.aiOffsets))
+    def write_formation_ai(self, f: BinaryIO):
+        f.write(pack("<hhhh", *self.ai_offsets))
         f.write(self.ai)
 
-    def writeEnemyAI(self, f: BinaryIO):
+    def write_enemy_ai(self, f: BinaryIO):
         offsets = [-1, -1, -1]
         ai = bytes()
         for i in range(3):
@@ -1152,7 +1167,7 @@ class SceneData:
 
 
 class SceneFile(NamedTuple):
-    blockStart: int
+    block_start: int
     start: int
     end: int
 
@@ -1175,10 +1190,10 @@ class SceneBlock:
             if i < 15:
                 e = offsets[i + 1]
                 if e == -1:
-                    e = 0x800
+                    e = SceneBlock.SIZE // 4
                     last = True
             else:
-                e = 0x800
+                e = SceneBlock.SIZE // 4
             self.files.append(SceneFile(self.start, o * 4, e * 4))
             if last:
                 break
@@ -1222,24 +1237,24 @@ class SceneBin:
     def __init__(self, fn: str):
         self.f = open(fn, "rb")
         self.size = stat(fn).st_size
-        self.readBlocks()
+        self.read_blocks()
 
-    def readBlocks(self):
+    def read_blocks(self):
         self.blocks = []
         count = self.size // SceneBlock.SIZE
         for i in range(count):
             self.f.seek(i * SceneBlock.SIZE)
             self.blocks.append(SceneBlock(self.f))
 
-    def getFileContents(self, index: int):
+    def get_file_contents(self, index: int):
         for b in self.blocks:
             if index >= len(b.files):
                 index -= len(b.files)
                 continue
             ref = b.files[index]
-            self.f.seek(ref.blockStart + ref.start)
-            return decompress(self.f.read(ref.size).strip(bytes([255])))
+            self.f.seek(ref.block_start + ref.start)
+            return decompress(self.f.read(ref.size).strip(b"\xff"))
         raise IndexError(f"could not find index {index}")
 
     def dump(self, i: int, fn: str):
-        open(fn, "wb").write(self.getFileContents(i))
+        open(fn, "wb").write(self.get_file_contents(i))

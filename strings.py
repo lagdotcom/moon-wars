@@ -1,4 +1,4 @@
-ff7Text = {
+TEXT = {
     0: " ",
     1: "!",
     2: '"',
@@ -227,7 +227,7 @@ ff7Text = {
     # TODO: UNCONFIRMED -- 0xF2: "{CID}",
     # TODO: UNCONFIRMED -- 0xF3: "{PARTY1}",
     # TODO: UNCONFIRMED -- 0xF4: "{PARTY2}",
-    # TODO: UNCONFIRMED -- 0xF5: "{PARTY3},",
+    # TODO: UNCONFIRMED -- 0xF5: "{PARTY3}",
     0xF6: "〇",
     0xF7: "△",
     0xF8: "☐",
@@ -235,11 +235,11 @@ ff7Text = {
     0xFE: "{FUNC}",
     0xFF: "{END}",
 }
-ff7TextInverted: dict[str, int] = {}
-for code, text in ff7Text.items():
-    ff7TextInverted.setdefault(text, code)
+TEXT_INVERTED: dict[str, bytes] = {}
+for code, text in TEXT.items():
+    TEXT_INVERTED.setdefault(text, bytes(code))
 
-ff7NameIds = {
+NAMES = {
     0x00: "CLOUD",
     0x01: "BARRET",
     0x02: "TIFA",
@@ -250,29 +250,26 @@ ff7NameIds = {
     0x07: "VINCENT",
     0x08: "CID",
 }
-ff7NameIdsInverted = {name: ident for ident, name in ff7NameIds.items()}
+NAMES_INVERTED = {name: ident for ident, name in NAMES.items()}
 
 
-def translate(b: bytes):
+def decode(b: bytes):
     s = ""
     i = 0
     while i < len(b):
         if i + 3 <= len(b) and b[i] == 0xEA and b[i + 1] == 0:
             name_id = b[i + 2]
-            name = ff7NameIds.get(name_id, f"NAME{name_id:02X}")
+            name = NAMES.get(name_id, f"NAME{name_id:02X}")
             s += "{" + name + "}"
             i += 3
             continue
         code = b[i]
         i += 1
-        if code in ff7Text:
-            s += ff7Text[code]
-        else:
-            s += chr(code)
+        s += TEXT.get(code, chr(code))
     return s
 
 
-def untranslate(s: str):
+def encode(s: str):
     b = bytes()
     i = 0
     while i < len(s):
@@ -280,7 +277,7 @@ def untranslate(s: str):
             end = s.find("}", i + 1)
             if end != -1:
                 name_spec = s[i + 1 : end]
-                name_id = ff7NameIdsInverted.get(name_spec)
+                name_id = NAMES_INVERTED.get(name_spec)
                 if name_id is None and name_spec.startswith("NAME"):
                     try:
                         name_id = int(name_spec[4:], 16)
@@ -291,8 +288,8 @@ def untranslate(s: str):
                     i = end + 1
                     continue
         c = s[i]
-        if c in ff7TextInverted:
-            b += bytes([ff7TextInverted[c]])
+        if c in TEXT_INVERTED:
+            b += TEXT_INVERTED[c]
         else:
             raise Exception("Cannot encode '%s' (%d) in FF7 Text" % (c, ord(c)))
         i += 1

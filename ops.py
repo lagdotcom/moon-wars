@@ -67,7 +67,7 @@ class Op(Enum):
     POP2_A1 = 0xA1  # unused
 
 
-ops_with_address_arg = {
+OPS_WITH_ADDRESS_ARG = {
     Op.READ_BIT,
     Op.READ_BYTE,
     Op.READ_THREE,
@@ -76,5 +76,5 @@ ops_with_address_arg = {
     Op.ADDR_BYTE,
     Op.ADDR_WORD,
     Op.ADDR_THREE,
-    Op.PUSH_WORD,
+    Op.PUSH_WORD,  # probably
 }

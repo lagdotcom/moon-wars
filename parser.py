@@ -4,25 +4,25 @@ from scanner import Token, TokenType
 class Parser:
     current: Token
     previous: Token
-    hadError: bool
-    panicMode: bool
+    had_error: bool
+    panic_mode: bool
 
     def __init__(self):
         self.current = None
         self.previous = None
-        self.hadError = False
-        self.panicMode = False
+        self.had_error = False
+        self.panic_mode = False
 
-    def errorAtCurrent(self, message: str):
-        self.errorAt(self.current, message)
+    def error_at_current(self, message: str):
+        self.error_at(self.current, message)
 
     def error(self, message: str):
-        self.errorAt(self.previous, message)
+        self.error_at(self.previous, message)
 
-    def errorAt(self, token: Token, message: str):
-        if self.panicMode:
+    def error_at(self, token: Token, message: str):
+        if self.panic_mode:
             return
-        self.panicMode = True
+        self.panic_mode = True
         pos = "[line %d] Error" % token.line
 
         if token.type == TokenType.EOF:
@@ -31,4 +31,4 @@ class Parser:
             pos += " at '%s'" % token.value
 
         print("%s: %s" % (pos, message))
-        self.hadError = True
+        self.had_error = True
