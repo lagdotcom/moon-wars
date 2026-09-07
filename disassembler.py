@@ -247,7 +247,8 @@ class NiceFormatter(Formatter):
             arg_hex = arg_hex[:3] + "..."
         extra = f"# {arg_name}" if arg_name else ""
         command = "%s %s" % (mne, arg)
-        print("%04x %02x\t%-6s %-24s%s" % (location, op.value, arg_hex, command, extra))
+        line = "%04x %02x\t%-6s %-24s%s" % (location, op.value, arg_hex, command, extra)
+        print(line.rstrip())
 
 
 if __name__ == "__main__":

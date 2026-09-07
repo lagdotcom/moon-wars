@@ -15,7 +15,7 @@ from scene import (
 )
 from vars import DEFAULT_DECLARATIONS
 
-VERSION = "0.31"
+VERSION = "0.32"
 
 
 class Formatter(Enum):
@@ -30,12 +30,12 @@ class Args(NamedTuple):
     src: str | None = None  # scene file
     enemy: str | None = None  # enemy ID
     ai: str | None = None  # AI source file
-    dump_scene: bool = False  # dump all scene data
-    dump_enemy: bool = False  # dump chosen enemy data
-    dump_ai: bool = False  # dump chosen enemy AI
+    dumpScene: bool = False  # dump all scene data
+    dumpEnemy: bool = False  # dump chosen enemy data
+    dumpAI: bool = False  # dump chosen enemy AI
     formatter: Formatter = Formatter.Nice  # AI dump formatter
-    show_compiled: bool = False  # dump compiled AI
-    replace_ai: bool = False  # replace enemy AI
+    showCompiled: bool = False  # dump compiled AI
+    replaceAI: bool = False  # replace enemy AI
 
 
 def parse_args(arguments: list[str]):
@@ -55,10 +55,7 @@ def parse_args(arguments: list[str]):
     parser.add_argument("--replaceAI", action="store_true", help="replace enemy AI")
 
     parser.add_argument(
-        "--formatter",
-        type=Formatter,
-        default=Formatter.Nice,
-        help="AI dump formatter",
+        "--formatter", type=Formatter, default=Formatter.Nice, help="AI dump formatter"
     )
 
     parsed = parser.parse_args(arguments)
@@ -89,7 +86,7 @@ def process(a: Args):
         if not success:
             return die("Error while compiling, exiting early")
 
-        if a.show_compiled:
+        if a.showCompiled:
             for chunk in comp.chunks:
                 print(chunk.name + ":")
                 buf = BytesIO(chunk.code)
@@ -117,7 +114,7 @@ def process(a: Args):
         dat = SceneData(f, -1)
         print("*** Loaded", a.src)
 
-    if a.dump_scene:
+    if a.dumpScene:
         if not dat:
             return die("--dumpScene requires --bin BIN --scene NUM or --src")
 
@@ -160,10 +157,10 @@ def process(a: Args):
         if not en:
             return die("Cannot find enemy of ID: %d" % want)
 
-        if a.dump_enemy:
+        if a.dumpEnemy:
             print(en)
 
-        if a.dump_ai:
+        if a.dumpAI:
             if en.ai:
                 print(f"=== ENEMY {en.id:04x} {en.name}")
                 ai_declarations = declarations + attack_declarations(
@@ -173,7 +170,7 @@ def process(a: Args):
                     print("===", script_name)
                     fmt(BytesIO(script_code), ai_declarations)
 
-    if a.replace_ai:
+    if a.replaceAI:
         if not comp or not dat or not en:
             return die(
                 "Require (--bin BIN --scene NUM or --src SCENE) --ai SRC --enemy ID"
@@ -182,40 +179,37 @@ def process(a: Args):
         ai = convert_to_ai_data(comp)
         print("New AI has:", ai.present)
 
-        old_ai = en.ai
-        if not old_ai:
+        if not en.ai:
             return die("Enemy has no existing AI to replace")
         en.ai = ai
 
+        buf = BytesIO()
+        try:
+            dat.write(buf)
+        except ValueError as error:
+            return die(str(error))
+        replacement = buf.getvalue()
+
         if a.src:
             ofn = a.src + ".tmp"
-            dat.save(ofn)
+            with open(ofn, "wb") as f:
+                f.write(replacement)
             print("Wrote:", ofn)
 
         if bin and a.scene is not None:
             ofn = "scene.bin.tmp"
-            original_contents = bin.get_file_contents(a.scene)
-            old_ai_raw = old_ai.raw()
-            if original_contents.count(old_ai_raw) != 1:
-                return die("Could not uniquely locate the enemy AI in the scene")
-            replacement = original_contents.replace(old_ai_raw, ai.raw(), 1)
             with open(ofn, "wb") as f:
-                bin.f.seek(0)
                 index = 0
                 for block in bin.blocks:
                     end_index = index + len(block.files)
-                    if a.scene >= index and a.scene < end_index:
-                        pos = bin.f.tell()
-                        block_data = bin.f.read(SceneBlock.SIZE)
-                        bin.f.seek(pos)
-                        file_index = a.scene - index
-                        bin.f.seek(pos)
+                    bin.f.seek(block.start)
+                    block_data = bin.f.read(SceneBlock.SIZE)
+                    if index <= a.scene < end_index:
                         block.write_replaced_file(
-                            f, block_data, file_index, replacement
+                            f, block_data, a.scene - index, replacement
                         )
-                        bin.f.seek(pos + SceneBlock.SIZE)
                     else:
-                        f.write(bin.f.read(SceneBlock.SIZE))
+                        f.write(block_data)
                     index = end_index
             print("Wrote:", ofn)
 

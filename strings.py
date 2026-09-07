@@ -237,7 +237,7 @@ TEXT = {
 }
 TEXT_INVERTED: dict[str, bytes] = {}
 for code, text in TEXT.items():
-    TEXT_INVERTED.setdefault(text, bytes(code))
+    TEXT_INVERTED.setdefault(text, bytes([code]))
 
 NAMES = {
     0x00: "CLOUD",

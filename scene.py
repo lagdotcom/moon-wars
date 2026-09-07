@@ -1,6 +1,6 @@
 from enum import Enum, IntFlag, auto
 from gzip import compress, decompress
-from io import BytesIO
+from io import SEEK_END, BytesIO
 from os import stat
 from struct import pack, unpack
 from typing import BinaryIO, Iterable, NamedTuple
@@ -17,9 +17,25 @@ def fix_string(b: bytes):
 
 def pad_string(s: str, size: int, ch: bytes = b"\xff"):
     p = encode(s)
+    if len(p) > size:
+        raise ValueError(
+            f"{s} encodes to {len(p)} bytes, too large for field of size {size}"
+        )
     while len(p) < size:
         p += ch
     return p
+
+
+def name_bytes(name: str, raw: bytes | None, size: int):
+    if raw is not None and fix_string(raw) == name:
+        return raw
+    return pad_string(name, size)
+
+
+def invert_field(value: int, mask: int):
+    if value == 0:
+        return mask
+    return ~value & mask
 
 
 class BattleLocation(Enum):
@@ -278,26 +294,24 @@ class AIData:
     offsets: list[int]
     src: bytes
 
-    def __init__(self, f: BinaryIO | None):
-        if f:
-            # start = f.tell()
-            self.offsets = list(unpack("<hhhhhhhhhhhhhhhh", f.read(32)))
-            highest = -1
-            for o in self.offsets:
-                if o > highest:
-                    highest = o
-            if highest == -1:
-                self.src = bytes()
-            else:
-                self.src = f.read(highest - 0x20)
-                while True:
-                    ch = f.read(1)
-                    if not ch:
-                        break
-                    self.src += ch
-                    # TODO improve me
-                    if ch == b"\x73":
-                        break
+    @staticmethod
+    def from_file(f: BinaryIO, end: int):
+        data = AIData()
+
+        start = f.tell()
+        data.offsets = list(unpack("<hhhhhhhhhhhhhhhh", f.read(32)))
+        highest = max(data.offsets)
+        if highest == -1:
+            data.src = bytes()
+            return data
+        size = end - (start + 0x20)
+        if size < highest - 0x20:
+            raise ValueError(
+                f"enemy AI block at {start:#x} is too small for offset table"
+            )
+        data.src = f.read(size).rstrip(b"\xff")
+
+        return data
 
     def raw(self):
         code = pack("<hhhhhhhhhhhhhhhh", *self.offsets) + self.src
@@ -359,7 +373,7 @@ def convert_to_ai_data(c: Compiler):
         offsets[slot] = len(src) + 0x20
         src += ch.code
 
-    dat = AIData(None)
+    dat = AIData()
     dat.offsets = offsets
     dat.src = src
     return dat
@@ -368,6 +382,7 @@ def convert_to_ai_data(c: Compiler):
 class Enemy:
     id: int
     name: str
+    name_raw: bytes | None = None
     level: int
     speed: int
     luck: int
@@ -380,7 +395,7 @@ class Enemy:
     animations: Iterable[int]
     attacks: Iterable[int]
     movements: Iterable[int]
-    items: dict[int, ItemDropSteal]
+    items: list[tuple[int, ItemDropSteal]]
     auto_attacks: Iterable[int]
     unknown9A: int
     mp: int
@@ -457,6 +472,7 @@ class Enemy:
             immune,
             self.unknownB4,
         ) = unpack("<HHHhBBIIIII", f.read(30))
+        self.name_raw = name
         self.name = fix_string(name)
         self.elements = {}
         for i in range(8):
@@ -464,7 +480,7 @@ class Enemy:
             if e == -1:
                 continue
             self.elements[ElementIndex(e)] = ElementRate(r)
-        self.items = {}
+        self.items = []
         for i in range(4):
             id = items[i]
             if id == -1:
@@ -474,7 +490,7 @@ class Enemy:
             if rate & 0x80:
                 rate -= 0x80
                 drop = False
-            self.items[id] = ItemDropSteal(drop, rate)
+            self.items.append((id, ItemDropSteal(drop, rate)))
         self.back_multiplier = mul / 8
         if immune == 0xFFFFFFFF:
             immune = 0
@@ -493,21 +509,22 @@ class Enemy:
         return elems, erates
 
     def gather_item_rates(self):
-        irates = [255] * 4
-        items = [-1] * 4
+        rates = [255] * 4
+        item_ids = [-1] * 4
         i = 0
-        for id, ds in self.items.items():
-            items[i] = id
-            irates[i] = ds.raw()
-            i += 1
-        return items, irates
+        if len(self.items) > 4:
+            raise ValueError(f"enemy {self.id} has {len(self.items)} item slots")
+        for i, (id, ds) in enumerate(self.items):
+            item_ids[i] = id
+            rates[i] = ds.raw()
+        return item_ids, rates
 
     def write(self, f: BinaryIO):
-        name = pad_string(self.name, 32)
+        name = name_bytes(self.name, self.name_raw, 32)
         elems, erates = self.gather_elem_rates()
         items, irates = self.gather_item_rates()
         mul = int(self.back_multiplier * 8)
-        immune = self.immunity.conjugate()
+        immune = invert_field(self.immunity.value, 0xFFFFFFFF)
         f.write(
             pack(
                 "<32sBBBBBBBB",
@@ -635,7 +652,7 @@ class Setup:
         arenas = self.next_arena_battle[:]
         while len(arenas) < 4:
             arenas.append(999)
-        flags = self.flags.value
+        flags = ~self.flags.value & 0xFFFF
         layout = self.layout.value
         f.write(
             pack(
@@ -897,6 +914,7 @@ class AttackFlags(IntFlag):
 class Attack:
     id: int
     name: str
+    name_raw: bytes | None = None
     accuracy: int
     impact_effect: int
     hurt_action: int
@@ -948,7 +966,7 @@ class Attack:
         target = self.target.value
         condition = self.condition.value
         element = self.element.value
-        flags = self.flags.conjugate()
+        flags = invert_field(self.flags.value, 0xFFFF)
         f.write(
             pack(
                 "<BBBBHHHHBBBBBBbbIHH",
@@ -1057,7 +1075,7 @@ class SceneData:
         return SceneData(BytesIO(decompressed), id)
 
     def read_ids(self, f: BinaryIO):
-        ida, idb, idc, self.idPadding = unpack("<hhhh", f.read(8))
+        ida, idb, idc, self.id_padding = unpack("<hhhh", f.read(8))
         self.enemies[0].id = ida
         self.enemies[1].id = idb
         self.enemies[2].id = idc
@@ -1080,7 +1098,9 @@ class SceneData:
         ids = unpack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", f.read(64))
         for i in range(32):
             self.attacks[i].id = ids[i]
-            self.attacks[i].name = fix_string(f.read(32))
+            raw = f.read(32)
+            self.attacks[i].name = fix_string(raw)
+            self.attacks[i].name_raw = raw
 
     def read_formation_ai(self, f: BinaryIO):
         self.ai_offsets = unpack("<hhhh", f.read(8))
@@ -1089,12 +1109,17 @@ class SceneData:
     def read_enemy_ai(self, f: BinaryIO):
         start = f.tell()  # should always be 0xE80
         offsets = unpack("<hhh", f.read(6))
+        f.seek(0, SEEK_END)
+        section_end = f.tell()
+        used = sorted(o for o in offsets if o != -1)
         for i in range(3):
             o = offsets[i]
             if o == -1:
                 continue
+            later = [x for x in used if x > o]
+            end = start + later[0] if later else section_end
             f.seek(start + o)
-            self.enemies[i].ai = AIData(f)
+            self.enemies[i].ai = AIData.from_file(f, end)
 
     def save(self, fn: str):
         f = open(fn, "wb")
@@ -1110,8 +1135,10 @@ class SceneData:
         self.write_attacks(f)
         self.write_formation_ai(f)
         self.write_enemy_ai(f)
-        padding = 0x1E80 - f.tell() + s
-        f.write(b"\xff" * padding)
+        size = f.tell() - s
+        if size > 0x1E80:
+            raise ValueError(f"scene data too large: {size:#x} bytes")
+        f.write(b"\xff" * (0x1E80 - size))
 
     def write_ids(self, f: BinaryIO):
         f.write(
@@ -1120,7 +1147,7 @@ class SceneData:
                 self.enemies[0].id,
                 self.enemies[1].id,
                 self.enemies[2].id,
-                self.idPadding,
+                self.id_padding,
             )
         )
 
@@ -1146,7 +1173,7 @@ class SceneData:
         for o in self.attacks:
             o.write(f)
             ids.append(o.id)
-            names += pad_string(o.name, 32)
+            names += name_bytes(o.name, o.name_raw, 32)
         f.write(pack("<hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", *ids))
         f.write(names)
 
