@@ -1150,23 +1150,28 @@ class SceneBlock:
             for n, file in enumerate(self.files)
         ]
 
-    def write_all_files(self, f: BinaryIO, files: list[SceneData]):
-        start = f.tell()
+    def write_replaced_file(
+        self, f: BinaryIO, block: bytes, file_index: int, replacement: bytes
+    ):
         contents = BytesIO()
         offsets: list[int] = []
-        for file in files:
+        for i, file in enumerate(self.files):
             offsets.append(contents.tell() // 4 + 0x10)
-            temp = BytesIO()
-            file.write(temp)
-            compressed = compress(temp.getbuffer())
-            contents.write(compressed)
-            contents.write(b"\xff" * (-len(compressed) % 4))
+            if i == file_index:
+                data = compress(replacement, mtime=0)
+                # preserve OS byte
+                original = block[file.start : file.end]
+                data = data[:9] + original[9:10] + data[10:]
+            else:
+                data = block[file.start : file.end].rstrip(b"\xff")
+            data += b"\xff" * (-len(data) % 4)
+            contents.write(data)
         while len(offsets) < 16:
             offsets.append(0xFFFFFFFF)
         for o in offsets:
             f.write(o.to_bytes(4, "little"))
         f.write(contents.getvalue())
-        size = f.tell() - start
+        size = 0x40 + contents.tell()
         if size > SceneBlock.SIZE:
             raise ValueError(f"scene block is too large: {size:#x} bytes")
         f.write(b"\xff" * (SceneBlock.SIZE - size))

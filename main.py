@@ -9,7 +9,7 @@ from disassembler import NiceFormatter, ProudClodBinary, ProudClodText
 from scene import SceneBin, SceneBlock, SceneData, convertToAIData
 from vars import variables
 
-VERSION = "0.21"
+VERSION = "0.22"
 
 
 class Formatter(Enum):
@@ -165,6 +165,9 @@ def process(a: Args):
         ai = convertToAIData(comp)
         print("New AI has:", ai.present)
 
+        old_ai = en.ai
+        if not old_ai:
+            return die("Enemy has no existing AI to replace")
         en.ai = ai
 
         if a.src:
@@ -174,6 +177,11 @@ def process(a: Args):
 
         if bin and a.scene is not None:
             ofn = "scene.bin.tmp"
+            original_contents = bin.getFileContents(a.scene)
+            old_ai_raw = old_ai.raw()
+            if original_contents.count(old_ai_raw) != 1:
+                return die("Could not uniquely locate the enemy AI in the scene")
+            replacement = original_contents.replace(old_ai_raw, ai.raw(), 1)
             with open(ofn, "wb") as f:
                 bin.f.seek(0)
                 index = 0
@@ -181,15 +189,14 @@ def process(a: Args):
                     end_index = index + len(block.files)
                     if a.scene >= index and a.scene < end_index:
                         pos = bin.f.tell()
-                        files = block.read_all_files(bin.f, index)
-                        for file in files:
-                            if file.id == a.scene:
-                                for enemy in file.enemies:
-                                    if enemy.id == en.id:
-                                        print(f"- Patch AI for:\n{enemy}")
-                                        enemy.ai = ai
+                        block_data = bin.f.read(SceneBlock.SIZE)
                         bin.f.seek(pos)
-                        block.write_all_files(f, files)
+                        file_index = a.scene - index
+                        bin.f.seek(pos)
+                        block.write_replaced_file(
+                            f, block_data, file_index, replacement
+                        )
+                        bin.f.seek(pos + SceneBlock.SIZE)
                     else:
                         f.write(bin.f.read(SceneBlock.SIZE))
                     index = end_index
