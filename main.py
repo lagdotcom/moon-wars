@@ -15,7 +15,7 @@ from scene import (
 )
 from vars import DEFAULT_DECLARATIONS
 
-VERSION = "0.32"
+VERSION = "0.33"
 
 
 class Formatter(Enum):

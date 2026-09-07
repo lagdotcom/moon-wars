@@ -468,10 +468,6 @@ class Compiler:
         self.compiling.patch(pos, *split_word(dest))
 
     def emit_condition_jump(self):
-        if self.compiling.code and self.compiling.code[-1] == Op.EQ.value:
-            self.compiling.code = self.compiling.code[:-1]
-            self.compiling.lines = self.compiling.lines[:-1]
-            return self.emit_jump(Op.JNEQ)
         return self.emit_jump(Op.JZ)
 
     def if_statement(self):

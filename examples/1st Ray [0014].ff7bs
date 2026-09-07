@@ -2,7 +2,7 @@ const word LaserCannon = 0x0117;
 
 var bit Delay at 0x0000;
 
-script Main {
+script main {
   if (!Delay) {
     TargetMask = RandomBit(Greatest(Mask(AllOpponentMask, HP)));
     Perform(EnemyAttack, LaserCannon);

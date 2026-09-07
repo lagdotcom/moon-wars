@@ -72,7 +72,7 @@ script main {
   }
 }
 
-script deathCounter {
+script counterDeath {
   if (Stage != 0) {
     WriteFlag(Self, IdleAnimID, 0);
     TargetMask = Self;
@@ -85,7 +85,7 @@ script deathCounter {
   Perform(ExecuteScript, 0x0F);
 }
 
-script preTurnCounter {
+script preAction {
   FlashLimit = 1;
   if (MyHP() <= MyMaxHP() / 2) {
     FlashLimit = 2;

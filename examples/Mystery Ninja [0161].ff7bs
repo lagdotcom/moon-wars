@@ -7,11 +7,11 @@ const word FireFang = 0x0360;
 var byte Count at 0x0000;
 var bit OpeningAttack at 0x0020;
 
-script Setup {
+script setup {
   WriteFlag(Self, DeathImmune, 1);
 }
 
-script Main {
+script main {
   Count = Count + 1;
   if (!OpeningAttack) {
     TargetMask = AllOpponentMask;
@@ -75,12 +75,12 @@ script Main {
   }
 }
 
-script CounterDeath {
+script counterDeath {
   GlobalAddress = 0x11;
   Global(1, 2);
 }
 
-script Custom8 {
+script custom8 {
   WriteFlag(Self, Enabled, 0);
   WriteFlag(Self, MainScriptActive, 0);
 }
