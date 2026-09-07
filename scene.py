@@ -6,7 +6,9 @@ from struct import pack, unpack
 from typing import BinaryIO, Iterable, NamedTuple, Optional
 
 from compiler import Compiler
+from enums import Size
 from strings import translate, untranslate
+from vars import Constant
 
 
 def fixString(b: bytes):
@@ -111,6 +113,7 @@ class BattleLocation(Enum):
     UltimateWeaponGongagaReactor = auto()
     CorelPrisonDyne = auto()
     UltimateWeaponForest = auto()
+    Invalid_ffff = 0xFFFF
 
 
 class ElementIndex(Enum):
@@ -302,6 +305,16 @@ class AIData:
             code += b"\xff"
         return code
 
+    def scripts(self) -> Iterable[tuple[str, bytes]]:
+        present = sorted(
+            (offset - 0x20, slot)
+            for slot, offset in enumerate(self.offsets)
+            if offset != -1
+        )
+        for index, (start, slot) in enumerate(present):
+            end = present[index + 1][0] if index + 1 < len(present) else len(self.src)
+            yield scriptNames[slot], self.src[start:end]
+
     @property
     def present(self) -> str:
         scripts: list[str] = []
@@ -341,6 +354,8 @@ def convertToAIData(c: Compiler) -> AIData:
         if nam not in aiSlotNames:
             raise Exception("Unknown AI slot: %s" % ch.name)
         slot = aiSlotNames[nam]
+        if offsets[slot] != -1:
+            raise ValueError("Duplicate AI script slot: %s" % ch.name)
         offsets[slot] = len(src) + 0x20
         src += ch.code
 
@@ -562,6 +577,7 @@ class SetupLayout(Enum):
     Side2 = auto()
     Side3 = auto()
     NoChange = auto()
+    Invalid_ff = 0xFF
 
 
 class Setup:
@@ -969,6 +985,29 @@ class Attack:
         if self.status != 0xFFFFFFFF:
             lines.append(self.statusEffects)
         return "\n".join(lines)
+
+
+def attack_declarations(
+    attacks: Iterable[Attack], attack_ids: Iterable[int] | None = None
+):
+    by_id = {attack.id: attack for attack in attacks if attack.id != -1}
+    declarations: list[Constant] = []
+    names: set[str] = set()
+    ids = attack_ids if attack_ids else by_id.keys()
+    for attack_id in ids:
+        attack = by_id.get(attack_id)
+        if attack_id == -1:
+            continue
+        name = (
+            attack.name
+            if attack is not None and attack.name
+            else f"Attack_{attack_id:04X}"
+        )
+        if name in names:
+            continue
+        names.add(name)
+        declarations.append(Constant(name, Size.WORD, attack_id))
+    return declarations
 
 
 class SceneData:

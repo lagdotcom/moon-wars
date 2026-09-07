@@ -6,7 +6,13 @@ from typing import NamedTuple, Optional, cast
 
 from compiler import Compiler
 from disassembler import NiceFormatter, ProudClodBinary, ProudClodText
-from scene import SceneBin, SceneBlock, SceneData, convertToAIData
+from scene import (
+    SceneBin,
+    SceneBlock,
+    SceneData,
+    attack_declarations,
+    convertToAIData,
+)
 from vars import variables
 
 VERSION = "0.22"
@@ -80,16 +86,16 @@ def process(a: Args):
         comp = Compiler()
         success = comp.compile(aiSource)
         declarations = list(comp.declarations.values())
+        if not success:
+            return die("Error while compiling, exiting early")
+
         if a.showCompiled:
             for chunk in comp.chunks:
                 print(chunk.name + ":")
                 buf = BytesIO(chunk.code)
                 fmt(buf, declarations)
                 print()
-        if not success:
-            return die("Error while compiling, exiting early")
-        else:
-            print("*** Compiled", a.ai)
+        print("*** Compiled", a.ai)
 
     bin = None
     dat = None
@@ -99,7 +105,11 @@ def process(a: Args):
         bin = SceneBin(a.bin)
 
         if a.scene is not None:
-            buf = BytesIO(bin.getFileContents(a.scene))
+            try:
+                scene_contents = bin.getFileContents(a.scene)
+            except IndexError as error:
+                return die(str(error))
+            buf = BytesIO(scene_contents)
             dat = SceneData(buf, a.scene)
 
     if a.src:
@@ -134,10 +144,13 @@ def process(a: Args):
         if not dat:
             return die("--enemy requires --bin BIN --scene NUM or --src")
 
-        if a.enemy[:2] == "0x":
-            want = int(a.enemy, 16)
-        else:
-            want = int(a.enemy, 10)
+        try:
+            if a.enemy[:2].lower() == "0x":
+                want = int(a.enemy, 16)
+            else:
+                want = int(a.enemy, 10)
+        except ValueError:
+            return die("Invalid enemy ID: %s" % a.enemy)
 
         for enemy in dat.enemies:
             if enemy.id == want:
@@ -151,10 +164,14 @@ def process(a: Args):
             print(en)
 
         if a.dumpAI:
-            # TODO
             if en.ai:
-                buf = BytesIO(en.ai.src)
-                fmt(buf, declarations)
+                print(f"=== ENEMY {en.id:04x} {en.name}")
+                ai_declarations = declarations + attack_declarations(
+                    dat.attacks, en.attacks
+                )
+                for script_name, script_code in en.ai.scripts():
+                    print("===", script_name)
+                    fmt(BytesIO(script_code), ai_declarations)
 
     if a.replaceAI:
         if not comp or not dat or not en:

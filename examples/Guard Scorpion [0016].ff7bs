@@ -63,23 +63,23 @@ script main {
         if (!ReadFlag(TargetMask, Status_Death)) {
           TargetMask = Mask(_2050, _4060) == 0x11;
           if (ReadFlag(TargetMask, Status_Death)) {
-            Print("{CLOUD}: It's gonna fire that laser...");
+            Print("{CLOUD} “It's gonna fire that laser…”");
             Perform(CameraMove, 0);
           } else {
-            Print("{CLOUD}: {BARRET}, be careful!");
+            Print("{CLOUD} “{BARRET}, be careful!”");
             Perform(CameraMove, 0);
           }
 
-          Print("Attack while it's tail's up!");
+          Print("“Attack while it's tail's up!");
           Perform(CameraMove, 0);
-          Print("It's gonna counterattack with its laser.");
+          Print("It's gonna counterattack with its laser.”");
           Perform(CameraMove, 0);
         } else {
-          Print("{BARRET}: I dunno what's goin' on, but...");
+          Print("{BARRET} “I dunno what's goin' on, but…");
           Perform(CameraMove, 0);
-          Print("It looks pretty bad.");
+          Print(" it looks pretty bad.");
           Perform(CameraMove, 0);
-          Print("Let's see what it does when it's tail's up...");
+          Print(" Let's see what it does when it's tail's up…”");
           Perform(CameraMove, 0);
         }
 

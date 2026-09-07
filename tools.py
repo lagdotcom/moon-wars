@@ -1,5 +1,7 @@
 from typing import Iterable
 
+from strings import untranslate
+
 
 def splitWord(w: int) -> tuple[int, int]:
     a = w & 0xFF
@@ -15,7 +17,7 @@ def splitThree(t: int) -> tuple[int, int, int]:
 
 
 def splitString(s: str) -> Iterable[int]:
-    chars = [ord(c) for c in s]
+    chars = list(untranslate(s))
     chars.append(0xFF)
     return chars
 
@@ -28,6 +30,6 @@ def hexBytes(by: bytes, fmt: str = "%02x") -> str:
 
 
 def asNumber(raw: str) -> int:
-    if raw.startswith("0x"):
+    if raw.lower().startswith("0x"):
         return int(raw, 16)
     return int(raw)

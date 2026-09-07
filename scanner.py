@@ -6,7 +6,7 @@ def isAlpha(c: str) -> bool:
 
 
 def isHexDigit(c: str) -> bool:
-    return c in "0123456789abcdefABCDEF"
+    return bool(c) and c in "0123456789abcdefABCDEF"
 
 
 class TokenType(Enum):
@@ -140,7 +140,7 @@ class Scanner:
 
     @property
     def peekNext(self) -> str:
-        if self.isAtEnd:
+        if self.current + 1 >= len(self.src):
             return ""
         return self.src[self.current + 1]
 
@@ -173,7 +173,7 @@ class Scanner:
                 self.advance()
             elif c == "/":
                 if self.peekNext == "/":
-                    while self.peek != "\n":
+                    while self.peek != "\n" and not self.isAtEnd:
                         self.advance()
                 else:
                     return
@@ -196,10 +196,21 @@ class Scanner:
         while self.peek.isdigit():
             self.advance()
 
-        if self.peek == "x":
+        if self.peek in ("x", "X"):
             self.advance()
+            if not isHexDigit(self.peek):
+                return self.makeError("Invalid hexadecimal number.")
             while isHexDigit(self.peek):
                 self.advance()
+        elif isAlpha(self.peek):
+            while isAlpha(self.peek) or self.peek.isdigit():
+                self.advance()
+            return self.makeError("Invalid number.")
+
+        if isAlpha(self.peek):
+            while isAlpha(self.peek) or self.peek.isdigit():
+                self.advance()
+            return self.makeError("Invalid number.")
 
         return self.make(TokenType.NUMBER)
 

@@ -76,4 +76,5 @@ ops_with_address_arg = {
     Op.ADDR_BYTE,
     Op.ADDR_WORD,
     Op.ADDR_THREE,
+    Op.PUSH_WORD,
 }

@@ -216,18 +216,18 @@ ff7Text = {
     0xE3: '."',
     0xE4: '..."',
     0xE7: "{EOL}",
-    0xEA: "{CLOUD}",
-    0xEB: "{BARRET}",
-    0xEC: "{TIFA}",
-    0xED: "{AERITH}",
-    0xEE: "{REDXIII}",
-    0xEF: "{YUFFIE}",
-    0xF0: "{CAITSITH}",
-    0xF1: "{VINCENT}",
-    0xF2: "{CID}",
-    0xF3: "{PARTY1}",
-    0xF4: "{PARTY2}",
-    0xF5: "{PARTY3},",
+    # TODO: UNCONFIRMED -- 0xEA: "{CLOUD}",
+    # TODO: UNCONFIRMED -- 0xEB: "{BARRET}",
+    # TODO: UNCONFIRMED -- 0xEC: "{TIFA}",
+    # TODO: UNCONFIRMED -- 0xED: "{AERITH}",
+    # TODO: UNCONFIRMED -- 0xEE: "{REDXIII}",
+    # TODO: UNCONFIRMED -- 0xEF: "{YUFFIE}",
+    # TODO: UNCONFIRMED -- 0xF0: "{CAITSITH}",
+    # TODO: UNCONFIRMED -- 0xF1: "{VINCENT}",
+    # TODO: UNCONFIRMED -- 0xF2: "{CID}",
+    # TODO: UNCONFIRMED -- 0xF3: "{PARTY1}",
+    # TODO: UNCONFIRMED -- 0xF4: "{PARTY2}",
+    # TODO: UNCONFIRMED -- 0xF5: "{PARTY3},",
     0xF6: "〇",
     0xF7: "△",
     0xF8: "☐",
@@ -235,25 +235,65 @@ ff7Text = {
     0xFE: "{FUNC}",
     0xFF: "{END}",
 }
-ff7TextInverted = {v: k for k, v in ff7Text.items()}
-ff7TextInverted[" "] = 0
+ff7TextInverted: dict[str, int] = {}
+for code, text in ff7Text.items():
+    ff7TextInverted.setdefault(text, code)
+
+ff7NameIds = {
+    0x00: "CLOUD",
+    0x01: "BARRET",
+    0x02: "TIFA",
+    0x03: "AERITH",
+    0x04: "REDXIII",
+    0x05: "YUFFIE",
+    0x06: "CAITSITH",
+    0x07: "VINCENT",
+    0x08: "CID",
+}
+ff7NameIdsInverted = {name: ident for ident, name in ff7NameIds.items()}
 
 
 def translate(b: bytes):
     s = ""
-    for i in b:
-        if i in ff7Text:
-            s += ff7Text[i]
+    i = 0
+    while i < len(b):
+        if i + 3 <= len(b) and b[i] == 0xEA and b[i + 1] == 0:
+            name_id = b[i + 2]
+            name = ff7NameIds.get(name_id, f"NAME{name_id:02X}")
+            s += "{" + name + "}"
+            i += 3
+            continue
+        code = b[i]
+        i += 1
+        if code in ff7Text:
+            s += ff7Text[code]
         else:
-            s += chr(i)
+            s += chr(code)
     return s
 
 
 def untranslate(s: str):
     b = bytes()
-    for c in s:
+    i = 0
+    while i < len(s):
+        if s.startswith("{", i):
+            end = s.find("}", i + 1)
+            if end != -1:
+                name_spec = s[i + 1 : end]
+                name_id = ff7NameIdsInverted.get(name_spec)
+                if name_id is None and name_spec.startswith("NAME"):
+                    try:
+                        name_id = int(name_spec[4:], 16)
+                    except ValueError:
+                        name_id = None
+                if name_id is not None and 0 <= name_id <= 0xFF:
+                    b += bytes([0xEA, 0x00, name_id])
+                    i = end + 1
+                    continue
+        c = s[i]
         if c in ff7TextInverted:
             b += bytes([ff7TextInverted[c]])
         else:
             raise Exception("Cannot encode '%s' (%d) in FF7 Text" % (c, ord(c)))
+        i += 1
     return b

@@ -140,6 +140,8 @@ class Chunk:
         return self.raw(Op.NOT.value)
 
     def push(self, value: int) -> int:
+        if value < 0:
+            raise ValueError("cannot push a negative value")
         if value <= 0xFF:
             return self.pushByte(value)
         elif value <= 0xFFFF:
@@ -234,6 +236,7 @@ class Chunk:
 class Compiler:
     chunks: list[Chunk]
     compiling: Chunk
+    inScript: bool
     scanner: Scanner
     parser: Parser
     declarations: dict[str, Constant | Builtin | Variable]
@@ -241,6 +244,8 @@ class Compiler:
 
     def __init__(self):
         self.chunks = []
+        self.compiling = Chunk("<none>")
+        self.inScript = False
         self.declarations = startingEnv.copy()
         self.scopeDepth = 0
 
@@ -263,6 +268,7 @@ class Compiler:
         ch = Chunk(name)
         self.chunks.append(ch)
         self.compiling = ch
+        self.inScript = True
 
     def advance(self):
         self.parser.previous = self.parser.current
@@ -270,14 +276,33 @@ class Compiler:
         while True:
             self.parser.current = self.scanner.token()
             if self.parser.current.type != TokenType.ERROR:
+                if self.inScript:
+                    self.compiling.line = self.parser.current.line
                 break
 
             self.parser.errorAtCurrent(self.parser.current.value)
 
-    def consume(self, type: TokenType, message: str):
+    def consume(self, type: TokenType, message: str | None = None):
         if self.current.type == type:
             self.advance()
             return
+        if message is None:
+            expected = {
+                TokenType.LEFT_BRACE: "'{'",
+                TokenType.RIGHT_BRACE: "'}'",
+                TokenType.LEFT_PAREN: "'('",
+                TokenType.RIGHT_PAREN: "')'",
+                TokenType.COLON: "':'",
+                TokenType.SEMICOLON: "';'",
+                TokenType.COMMA: "','",
+                TokenType.EQUAL: "'='",
+                TokenType.AT: "'at'",
+                TokenType.IDENTIFIER: "identifier",
+                TokenType.NUMBER: "number",
+                TokenType.STRING: "string",
+                TokenType.EOF: "end of input",
+            }.get(type, "'" + type.name.lower() + "'")
+            message = "Expect " + expected + "."
         self.parser.errorAtCurrent(message)
 
     def check(self, type: TokenType) -> bool:
@@ -291,6 +316,10 @@ class Compiler:
 
     def parsePrecedence(self, p: Precedence):
         self.advance()
+
+        if not self.inScript:
+            self.parser.error("Expressions must be inside a script.")
+            return
 
         prefix = getRule(self.previous.type).prefix
         if not prefix:
@@ -314,7 +343,7 @@ class Compiler:
 
     def expressionStatement(self):
         self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after expression.")
+        self.consume(TokenType.SEMICOLON)
 
     def parseVariable(self, message: str):
         self.consume(TokenType.IDENTIFIER, message)
@@ -325,6 +354,18 @@ class Compiler:
             self.parser.error("Undefined variable: %s" % name.value)
             return
         return self.declarations[name.value]
+
+    def resolveValue(self, name: Token) -> Constant | Variable | None:
+        declaration = self.resolve(name)
+        if isinstance(declaration, (Constant, Variable)):
+            return declaration
+        if declaration is not None:
+            self.parser.error("Expected a constant or variable: %s" % name.value)
+        return None
+
+    def parseValueReference(self) -> Constant | Variable | None:
+        self.consume(TokenType.IDENTIFIER, "Expect a constant or variable.")
+        return self.resolveValue(self.previous)
 
     def namedVariable(self, name: Token, canAssign: bool):
         # print('namedVariable', name, canAssign)
@@ -346,7 +387,7 @@ class Compiler:
         else:
             self.compiling.read(var)
 
-    def parseSize(self):
+    def parseSize(self) -> Size | None:
         if self.match(TokenType.BIT):
             return Size.BIT
         elif self.match(TokenType.BYTE):
@@ -356,28 +397,54 @@ class Compiler:
         elif self.match(TokenType.TRIPLE):
             return Size.TRIPLE
         self.parser.errorAtCurrent("Expect bit/byte/word/triple.")
+        return None
 
     def constDeclaration(self):
         size = self.parseSize()
         name = self.parseVariable("Expect variable name.")
-        self.consume(TokenType.EQUAL, "Expect equals sign.")
-        self.consume(TokenType.NUMBER, "Expect constant value.")
+        self.consume(TokenType.EQUAL)
+        self.consume(TokenType.NUMBER)
         num = self.previous
-        self.consume(TokenType.SEMICOLON, "Expect ';' after const declaration.")
-        self.declare(Constant(name, size, asNumber(num.value)))
+        self.consume(TokenType.SEMICOLON)
+        if size is None:
+            return
+        value = asNumber(num.value)
+        max_value = {
+            Size.BIT: 1,
+            Size.BYTE: 0xFF,
+            Size.WORD: 0xFFFF,
+            Size.TRIPLE: 0xFFFFFF,
+        }[size]
+        if value > max_value:
+            self.parser.errorAt(num, "Constant does not fit its declared size.")
+            return
+        self.declare(Constant(name, size, value))
 
     def varDeclaration(self):
         size = self.parseSize()
         name = self.parseVariable("Expect variable name.")
-        self.consume(TokenType.AT, "Expect 'at' after variable name.")
-        self.consume(TokenType.NUMBER, "Expect constant value.")
+        self.consume(TokenType.AT)
+        self.consume(TokenType.NUMBER)
         addr = self.previous
-        self.consume(TokenType.SEMICOLON, "Expect ';' after const declaration.")
-        self.declare(Variable(name, size, asNumber(addr.value)))
+        self.consume(TokenType.SEMICOLON)
+        if size is None:
+            return
+        address = asNumber(addr.value)
+        if address > 0xFFFF:
+            self.parser.errorAt(addr, "Variable address does not fit a word.")
+            return
+        self.declare(Variable(name, size, address))
 
     def scriptDeclaration(self):
         name = self.parseVariable("Expect script name.")
+        if self.scopeDepth != 0:
+            self.parser.error("Script declarations must be at top level.")
+            return
         self.chunk(name)
+        self.consume(TokenType.LEFT_BRACE)
+        self.beginScope()
+        self.block()
+        self.endScope()
 
     def beginScope(self):
         self.scopeDepth += 1
@@ -386,11 +453,12 @@ class Compiler:
         self.scopeDepth -= 1
         if self.scopeDepth == 0:
             self.compiling.end()
+            self.inScript = False
 
     def block(self):
         while not self.check(TokenType.RIGHT_BRACE) and not self.check(TokenType.EOF):
             self.declaration()
-        self.consume(TokenType.RIGHT_BRACE, "Expect '}' after block.")
+        self.consume(TokenType.RIGHT_BRACE)
 
     def emitJump(self, op: Op):
         self.compiling.raw(op.value, 0xFF, 0xFF)
@@ -400,12 +468,19 @@ class Compiler:
         dest = self.compiling.len
         self.compiling.patch(pos, *splitWord(dest))
 
-    def ifStatement(self):
-        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.")
-        self.expression()
-        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.")
+    def emitConditionJump(self):
+        if self.compiling.code and self.compiling.code[-1] == Op.EQ.value:
+            self.compiling.code = self.compiling.code[:-1]
+            self.compiling.lines = self.compiling.lines[:-1]
+            return self.emitJump(Op.JNEQ)
+        return self.emitJump(Op.JZ)
 
-        thenJump = self.emitJump(Op.JZ)
+    def ifStatement(self):
+        self.consume(TokenType.LEFT_PAREN)
+        self.expression()
+        self.consume(TokenType.RIGHT_PAREN)
+
+        thenJump = self.emitConditionJump()
         self.statement()
 
         if self.match(TokenType.ELSE):
@@ -418,18 +493,18 @@ class Compiler:
 
     def whileStatement(self):
         loopStart = self.compiling.len
-        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.")
+        self.consume(TokenType.LEFT_PAREN)
         self.expression()
-        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.")
+        self.consume(TokenType.RIGHT_PAREN)
 
-        exitJump = self.emitJump(Op.JZ)
+        exitJump = self.emitConditionJump()
         self.statement()
         self.compiling.jp(loopStart)
 
         self.patchJump(exitJump)
 
     def forStatement(self):
-        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.")
+        self.consume(TokenType.LEFT_PAREN)
         if not self.match(TokenType.SEMICOLON):
             self.expressionStatement()
 
@@ -438,7 +513,7 @@ class Compiler:
         if not self.match(TokenType.SEMICOLON):
             self.expression()
             self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition.")
-            exitJump = self.emitJump(Op.JZ)
+            exitJump = self.emitConditionJump()
 
         if not self.match(TokenType.RIGHT_PAREN):
             bodyJump = self.emitJump(Op.JP)
@@ -459,32 +534,32 @@ class Compiler:
             if self.check(TokenType.RIGHT_BRACE):
                 return
             self.statement()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
+        self.consume(TokenType.SEMICOLON)
         # TODO don't output this for last case in switch
         return self.emitJump(Op.JP)
 
     def switchStatement(self):
-        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'switch'.")
+        self.consume(TokenType.LEFT_PAREN)
         self.expression()
-        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.")
+        self.consume(TokenType.RIGHT_PAREN)
 
-        self.consume(TokenType.LEFT_BRACE, "Expect '{'.")
+        self.consume(TokenType.LEFT_BRACE)
 
         prevJump = None
         skipJumps: list[int] = []
         endJumps: list[int] = []
         # TODO this code kinda blows
-        while not self.match(TokenType.RIGHT_BRACE):
+        while not self.match(TokenType.RIGHT_BRACE) and not self.check(TokenType.EOF):
             if prevJump:
                 self.patchJump(prevJump)
                 prevJump = None
             if self.match(TokenType.DEFAULT):
-                self.consume(TokenType.COLON, "Expect ':' after 'default'.")
+                self.consume(TokenType.COLON)
             else:
-                self.consume(TokenType.CASE, "Expect 'case'.")
+                self.consume(TokenType.CASE)
                 self.expression()
                 prevJump = self.emitJump(Op.JNEQ)
-                self.consume(TokenType.COLON, "Expect ':' after condition.")
+                self.consume(TokenType.COLON)
             if len(skipJumps):
                 for skipJump in skipJumps:
                     self.patchJump(skipJump)
@@ -495,6 +570,9 @@ class Compiler:
             endJump = self.caseStatements()
             if endJump:
                 endJumps.append(endJump)
+        if self.check(TokenType.EOF):
+            self.parser.errorAtCurrent("Expect '}' after switch.")
+            return
         for endJump in endJumps:
             self.patchJump(endJump)
         if prevJump:
@@ -544,6 +622,10 @@ class Compiler:
             self.advance()
 
     def compile(self, code: str) -> bool:
+        self.chunks = []
+        self.declarations = startingEnv.copy()
+        self.scopeDepth = 0
+        self.inScript = False
         self.scanner = Scanner(code)
         self.parser = Parser()
         self.advance()
@@ -552,7 +634,10 @@ class Compiler:
             self.declaration()
 
         self.consume(TokenType.EOF, "Expect end of expression.")
-        return not self.parser.hadError
+        if self.parser.hadError:
+            self.chunks = []
+            return False
+        return True
 
 
 ParseFn = Callable[[Compiler, bool], None]
@@ -571,15 +656,19 @@ def number(self: Compiler, canAssign: bool):
 
 def grouping(self: Compiler, canAssign: bool):
     self.expression()
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.")
+    self.consume(TokenType.RIGHT_PAREN)
 
 
 def unary(self: Compiler, canAssign: bool):
     type = self.previous.type
 
+    if type == TokenType.MINUS:
+        self.compiling.push(0)
     self.parsePrecedence(Precedence.UNARY)
 
-    if type == TokenType.BIT_NOT:
+    if type == TokenType.MINUS:
+        self.compiling.sub()
+    elif type == TokenType.BIT_NOT:
         self.compiling.bitNot()
     elif type == TokenType.NOT:
         self.compiling.logNot()
@@ -659,44 +748,44 @@ def getRule(type: TokenType) -> ParseRule:
 
 def doRandom(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.LEFT_PAREN)
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.random()
 
 
 def doRandomBit(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.randomBit()
 
 
 def doRandomBitEq(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.COMMA, "Expect ','.")
+    self.consume(TokenType.COMMA)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.eq()
     self.compiling.randomBit()
 
 
 def doPerform(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.COMMA, "Expect ','.")
+    self.consume(TokenType.COMMA)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.attack()
 
 
 def doMyHP(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.LEFT_PAREN)
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.readWord(0x2060)
     self.compiling.readThree(0x4160)
     self.compiling.mask()
@@ -704,8 +793,8 @@ def doMyHP(self: Compiler):
 
 def doMyMaxHP(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.LEFT_PAREN)
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.readWord(0x2060)
     self.compiling.readThree(0x4180)
     self.compiling.mask()
@@ -713,32 +802,32 @@ def doMyMaxHP(self: Compiler):
 
 def doPrint(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.consume(TokenType.STRING, "Expect string.")
+    self.consume(TokenType.LEFT_PAREN)
+    self.consume(TokenType.STRING)
     message = self.previous
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.say(message.value[1:-1])
 
 
 def doMask(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.COMMA, "Expect ','.")
+    self.consume(TokenType.COMMA)
     self.parsePrecedence(Precedence.CALL)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.mask()
 
 
 def doReadFlag(self: Compiler):
     # TODO this is utterly terrible
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.advance()
-    addr = self.resolve(self.previous)
-    self.consume(TokenType.COMMA, "Expect ','.")
-    self.advance()
-    mask = self.resolve(self.previous)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.LEFT_PAREN)
+    addr = self.parseValueReference()
+    self.consume(TokenType.COMMA)
+    mask = self.parseValueReference()
+    self.consume(TokenType.RIGHT_PAREN)
+    if addr is None or mask is None:
+        return
     self.compiling.read(addr)
     self.compiling.read(mask)
     self.compiling.mask()
@@ -746,43 +835,36 @@ def doReadFlag(self: Compiler):
 
 def doWriteFlag(self: Compiler):
     # TODO this is utterly terrible
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
-    self.advance()
-    addr = self.resolve(self.previous)
-    self.consume(TokenType.COMMA, "Expect ','.")
-    self.advance()
-    mask = self.resolve(self.previous)
-    self.consume(TokenType.COMMA, "Expect ','.")
-    self.advance()
-    value = self.previous
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.LEFT_PAREN)
+    addr = self.parseValueReference()
+    self.consume(TokenType.COMMA)
+    mask = self.parseValueReference()
+    self.consume(TokenType.COMMA)
+    if addr is None or mask is None:
+        return
     self.compiling.ref(addr)
     self.compiling.ref(mask)
     self.compiling.mask()
-    if value.type == TokenType.NUMBER:
-        self.compiling.push(asNumber(value.value))
-    elif value.type == TokenType.IDENTIFIER:
-        self.namedVariable(value, False)
-    else:
-        raise ValueError(f"doWriteFlag value = {value}")
+    self.expression()
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.write()
 
 
 def doGlobal(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.ASSIGNMENT)
-    self.consume(TokenType.COMMA, "Expect ','.")
+    self.consume(TokenType.COMMA)
     self.parsePrecedence(Precedence.ASSIGNMENT)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.save()
 
 
 def doGreatest(self: Compiler):
     # TODO this sucks
-    self.consume(TokenType.LEFT_PAREN, "Expect '('.")
+    self.consume(TokenType.LEFT_PAREN)
     self.parsePrecedence(Precedence.ASSIGNMENT)
-    self.consume(TokenType.RIGHT_PAREN, "Expect ')'.")
+    self.consume(TokenType.RIGHT_PAREN)
     self.compiling.greatest()
 
 

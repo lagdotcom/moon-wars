@@ -2,6 +2,7 @@ from io import BytesIO
 from typing import BinaryIO, Optional
 
 from ops import Op, ops_with_address_arg
+from strings import translate
 from tools import hexBytes
 from vars import Constant, Declaration, Variable, variables
 
@@ -56,7 +57,7 @@ class StringOperand:
 
     @property
     def asString(self):
-        return self.raw[:-1].decode("utf-8", errors="replace")
+        return translate(self.raw[:-1])
 
     def __repr__(self):
         return self.asString
