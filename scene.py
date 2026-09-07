@@ -1124,6 +1124,7 @@ class SceneFile(NamedTuple):
 
 class SceneBlock:
     files: list[SceneFile]
+    SIZE = 0x2000
 
     def __init__(self, f: BinaryIO):
         self.start = f.tell()
@@ -1150,18 +1151,25 @@ class SceneBlock:
         ]
 
     def write_all_files(self, f: BinaryIO, files: list[SceneData]):
+        start = f.tell()
         contents = BytesIO()
         offsets: list[int] = []
         for file in files:
             offsets.append(contents.tell() // 4 + 0x10)
             temp = BytesIO()
             file.write(temp)
-            contents.write(compress(temp.getbuffer()))
+            compressed = compress(temp.getbuffer())
+            contents.write(compressed)
+            contents.write(b"\xff" * (-len(compressed) % 4))
         while len(offsets) < 16:
             offsets.append(0xFFFFFFFF)
         for o in offsets:
             f.write(o.to_bytes(4, "little"))
         f.write(contents.getvalue())
+        size = f.tell() - start
+        if size > SceneBlock.SIZE:
+            raise ValueError(f"scene block is too large: {size:#x} bytes")
+        f.write(b"\xff" * (SceneBlock.SIZE - size))
 
 
 class SceneBin:
@@ -1174,9 +1182,9 @@ class SceneBin:
 
     def readBlocks(self):
         self.blocks = []
-        count = self.size // 0x2000
+        count = self.size // SceneBlock.SIZE
         for i in range(count):
-            self.f.seek(i * 0x2000)
+            self.f.seek(i * SceneBlock.SIZE)
             self.blocks.append(SceneBlock(self.f))
 
     def getFileContents(self, index: int):

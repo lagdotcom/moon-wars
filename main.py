@@ -6,10 +6,10 @@ from typing import NamedTuple, Optional, cast
 
 from compiler import Compiler
 from disassembler import NiceFormatter, ProudClodBinary, ProudClodText
-from scene import SceneBin, SceneData, convertToAIData
+from scene import SceneBin, SceneBlock, SceneData, convertToAIData
 from vars import variables
 
-VERSION = "0.2"
+VERSION = "0.21"
 
 
 class Formatter(Enum):
@@ -191,7 +191,7 @@ def process(a: Args):
                         bin.f.seek(pos)
                         block.write_all_files(f, files)
                     else:
-                        f.write(bin.f.read(0x2000))
+                        f.write(bin.f.read(SceneBlock.SIZE))
                     index = end_index
             print("Wrote:", ofn)
 
